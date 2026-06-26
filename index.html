@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adobe Catalog Service — Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <div class="app-logo">CS</div>
+    <div class="app-title">Adobe <span>Catalog Service</span> Panel</div>
+    <div class="header-spacer"></div>
+    <span id="env-badge" class="env-badge staging">Staging</span>
+  </header>
+
+  <!-- ===== BODY ===== -->
+  <div class="app-body">
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar">
+
+      <!-- ENVIRONMENT ID -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Environment ID
+        </div>
+
+        <!-- Active environment display -->
+        <div id="active-env-display" class="active-env-display"></div>
+
+        <!-- Saved environments list -->
+        <div id="env-list" class="env-list"></div>
+
+        <!-- Add environment -->
+        <button id="btn-add-env" class="btn btn-secondary" style="width:100%;margin-bottom:8px;font-size:12px;">
+          + Añadir entorno
+        </button>
+
+        <div id="env-add-form" class="env-add-form">
+          <div class="form-row">
+            <label for="new-env-label">Label</label>
+            <input id="new-env-label" type="text" placeholder="Ej: Staging Cliente A" />
+          </div>
+          <div class="form-row">
+            <label for="new-env-id">Magento-Environment-Id</label>
+            <input id="new-env-id" type="text" placeholder="Ej: 4d3e2f1a-..." />
+          </div>
+          <div class="form-row">
+            <label for="new-env-type">Tipo de entorno</label>
+            <select id="new-env-type">
+              <option value="staging">Staging (sandbox)</option>
+              <option value="production">Producción</option>
+            </select>
+          </div>
+          <button id="btn-save-env" class="btn btn-primary" style="width:100%">Guardar entorno</button>
+        </div>
+      </div>
+
+      <!-- WEBSITE / STORE VIEW -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-title" style="justify-content:space-between">
+          <span style="display:flex;align-items:center;gap:6px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Website / Store View
+          </span>
+          <button id="btn-open-ws-manager" class="btn btn-secondary btn-sm" title="Gestionar websites y store views">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            Gestionar
+          </button>
+        </div>
+        <div class="form-row">
+          <label for="website-select">Website Code</label>
+          <select id="website-select"></select>
+        </div>
+        <div class="form-row">
+          <label for="store-view-select">Store View Code</label>
+          <select id="store-view-select"></select>
+        </div>
+      </div>
+
+      <!-- HEADERS INFO -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Headers activos
+        </div>
+        <div style="font-size:11px;line-height:1.9;color:var(--color-text-muted);font-family:var(--font-mono)">
+          <div><span style="color:var(--color-text-muted)">x-api-key</span><br/><span style="color:var(--color-success)">search_gql</span></div>
+          <div style="margin-top:6px"><span style="color:var(--color-text-muted)">Env-Id / Store / Website / View</span><br/><span style="color:var(--color-sku);font-size:10px">según selección</span></div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="main-content">
+
+      <!-- TABS BAR -->
+      <div class="tabs-bar">
+        <button class="tab-btn active" data-tab="products">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Productos
+        </button>
+        <button class="tab-btn disabled" data-tab="categories">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Categorías
+          <span class="tab-pill">Próximo</span>
+        </button>
+        <button class="tab-btn disabled" data-tab="other">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+          Otras entidades
+          <span class="tab-pill">Próximo</span>
+        </button>
+      </div>
+
+      <!-- ===== PANEL: PRODUCTOS ===== -->
+      <div id="panel-products" class="tab-panel active">
+
+        <!-- Query bar -->
+        <div class="query-panel">
+          <div class="query-field" style="max-width:480px">
+            <label for="product-phrase">Phrase</label>
+            <input
+              id="product-phrase"
+              type="text"
+              placeholder="Ej: tractor, engine, bolt..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button id="btn-product-search" class="btn btn-primary" style="padding:9px 20px;font-size:13px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Buscar productos
+          </button>
+        </div>
+
+        <!-- Results area -->
+        <div class="results-area">
+
+          <!-- Error message -->
+          <div id="products-error" class="status-message error" style="display:none">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <pre class="error-text" style="white-space:pre-wrap;font-family:var(--font);font-size:13px;margin:0"></pre>
+          </div>
+
+          <!-- Loading -->
+          <div id="products-loading" class="loading-indicator">
+            <div class="spinner"></div>
+            <span>Consultando Adobe Catalog Service...</span>
+          </div>
+
+          <!-- Results summary -->
+          <div id="products-results-summary" class="results-summary"></div>
+
+          <!-- Product cards -->
+          <div id="products-results"></div>
+
+          <!-- Facets -->
+          <div id="products-facets"></div>
+
+          <!-- Raw JSON -->
+          <div id="products-raw-container" class="raw-json-container" style="display:none">
+            <details class="raw-json">
+              <summary>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                Ver JSON crudo de la respuesta
+                <svg class="summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:auto"><polyline points="9 18 15 12 9 6"/></svg>
+              </summary>
+              <pre id="products-raw-pre" class="raw-json-pre"></pre>
+            </details>
+          </div>
+
+          <!-- Initial empty state -->
+          <div id="products-initial-state" class="empty-state">
+            <div class="empty-state-icon">&#x1F4E6;</div>
+            <p>Introduce un término de búsqueda en el campo <strong>Phrase</strong> y pulsa <strong>Buscar productos</strong> para consultar Adobe Catalog Service.</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ===== PANEL: CATEGORÍAS ===== -->
+      <div id="panel-categories" class="tab-panel">
+        <div class="placeholder-panel">
+          <div class="placeholder-icon">&#x1F4C1;</div>
+          <h2>Categorías</h2>
+          <p>Esta pestaña está reservada para consultar categorías del Catalog Service. Próximamente disponible.</p>
+        </div>
+      </div>
+
+      <!-- ===== PANEL: OTRAS ENTIDADES ===== -->
+      <div id="panel-other" class="tab-panel">
+        <div class="placeholder-panel">
+          <div class="placeholder-icon">&#x1F9E9;</div>
+          <h2>Otras entidades</h2>
+          <p>Esta pestaña está reservada para consultar otras entidades del Catalog Service. Próximamente disponible.</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+
+  <!-- ===== MODAL: GESTIÓN WEBSITES / STORE VIEWS ===== -->
+  <div id="ws-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal">
+
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Gestión de Websites y Store Views
+        </div>
+        <button id="btn-close-ws-modal" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+
+      <div class="modal-body">
+
+        <!-- Columna izquierda: Websites -->
+        <div class="modal-col">
+          <div class="modal-col-header">
+            <span class="modal-col-title">Websites</span>
+            <span id="ws-count" class="tab-pill">0</span>
+          </div>
+
+          <div id="ws-list" class="ws-list"></div>
+
+          <!-- Formulario añadir website -->
+          <div class="ws-add-form" id="ws-add-form">
+            <div class="form-row">
+              <label for="new-ws-code">Website Code</label>
+              <input id="new-ws-code" type="text" placeholder="Ej: cias999" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-row">
+              <label for="new-ws-label">Label (opcional)</label>
+              <input id="new-ws-label" type="text" placeholder="Ej: España" autocomplete="off" />
+            </div>
+            <button id="btn-save-ws" class="btn btn-primary" style="width:100%">Añadir website</button>
+          </div>
+        </div>
+
+        <!-- Separador -->
+        <div class="modal-divider"></div>
+
+        <!-- Columna derecha: Store Views del website seleccionado -->
+        <div class="modal-col">
+          <div class="modal-col-header">
+            <span class="modal-col-title">Store Views</span>
+            <span id="sv-count" class="tab-pill">0</span>
+          </div>
+
+          <div id="sv-website-label" class="sv-context">
+            Selecciona un website para ver sus store views
+          </div>
+
+          <div id="sv-list" class="ws-list"></div>
+
+          <!-- Formulario añadir store view -->
+          <div class="ws-add-form" id="sv-add-form" style="display:none">
+            <div class="form-row">
+              <label for="new-sv-code">Store View Code</label>
+              <input id="new-sv-code" type="text" placeholder="Ej: xxx_xx_xx_xx" autocomplete="off" spellcheck="false" />
+            </div>
+            <button id="btn-save-sv" class="btn btn-primary" style="width:100%">Añadir store view</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
