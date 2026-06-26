@@ -710,7 +710,8 @@ function renderProductCards(items) {
     if (!pv) return;
 
     const card = document.createElement('div');
-    card.className = 'product-card';
+    card.className = 'product-card product-card-clickable';
+    card.title = 'Ver detalle del producto';
 
     const attrsHtml = buildAttrsHtml(pv.attributes || []);
 
@@ -720,6 +721,7 @@ function renderProductCards(items) {
           <div class="product-name">${escHtml(pv.name || '—')}</div>
           <div style="margin-top:5px"><span class="product-sku">${escHtml(pv.sku || '—')}</span></div>
         </div>
+        <span class="product-card-open-hint">Ver detalle ›</span>
       </div>
       <div class="product-attrs">
         <button class="product-attrs-toggle" type="button">
@@ -733,12 +735,19 @@ function renderProductCards(items) {
       </div>
     `;
 
+    // Open product modal on card click (but not on the attrs toggle)
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.product-attrs-toggle')) return;
+      openProductModal(pv);
+    });
+
     // Toggle attributes
     const toggleBtn = card.querySelector('.product-attrs-toggle');
     const attrsBody = card.querySelector('.attrs-body');
     const chevron = card.querySelector('.attrs-chevron');
 
-    toggleBtn.addEventListener('click', () => {
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const isOpen = attrsBody.style.display !== 'none';
       attrsBody.style.display = isOpen ? 'none' : 'block';
       chevron.classList.toggle('open', !isOpen);
@@ -823,6 +832,83 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ===== PRODUCT DETAIL MODAL =====
+
+function initProductModal() {
+  $('btn-close-product-modal').addEventListener('click', closeProductModal);
+  $('product-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('product-modal-overlay')) closeProductModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('product-modal-overlay').style.display !== 'none') {
+      closeProductModal();
+    }
+  });
+}
+
+function openProductModal(pv) {
+  $('product-modal-title').textContent = pv.name || pv.sku || 'Detalle del producto';
+  $('product-modal-content').innerHTML = buildProductModalContent(pv);
+  $('product-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeProductModal() {
+  $('product-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function buildProductModalContent(pv) {
+  const attrs = pv.attributes || [];
+
+  // Group attributes by role for a richer display
+  const attrRows = attrs.map((attr) => {
+    const roles = Array.isArray(attr.roles)
+      ? attr.roles.map((r) => `<span class="attrs-role">${escHtml(r)}</span>`).join(' ')
+      : (attr.roles ? `<span class="attrs-role">${escHtml(attr.roles)}</span>` : '');
+    return `
+      <tr>
+        <td class="pmd-attr-name" title="${escHtml(attr.name || '')}">${escHtml(attr.label || attr.name || '—')}</td>
+        <td class="pmd-attr-value">${escHtml(attr.value || '—')}</td>
+        <td class="pmd-attr-roles">${roles}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const attrsSection = attrs.length > 0
+    ? `
+      <div class="pmd-section">
+        <div class="pmd-section-title">Atributos <span class="tab-pill">${attrs.length}</span></div>
+        <div class="pmd-table-wrap">
+          <table class="pmd-attrs-table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Valor</th>
+                <th>Roles</th>
+              </tr>
+            </thead>
+            <tbody>${attrRows}</tbody>
+          </table>
+        </div>
+      </div>
+    `
+    : `<div class="pmd-section"><p class="pmd-empty">Sin atributos disponibles.</p></div>`;
+
+  return `
+    <div class="pmd-hero">
+      <div class="pmd-hero-main">
+        <div class="pmd-name">${escHtml(pv.name || '—')}</div>
+        <div class="pmd-sku-row">
+          <span class="pmd-sku-label">SKU</span>
+          <span class="product-sku">${escHtml(pv.sku || '—')}</span>
+        </div>
+      </div>
+    </div>
+    ${attrsSection}
+  `;
+}
+
 // ===== INIT =====
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -832,4 +918,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebsiteManager();
   initTabs();
   initProductsTab();
+  initProductModal();
 });

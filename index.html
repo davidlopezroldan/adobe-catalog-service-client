@@ -13,7 +13,7 @@
 
   <!-- ===== HEADER ===== -->
   <header class="app-header">
-    <div class="app-logo">CS</div>
+    <div class="app-logo">ACS</div>
     <div class="app-title">Adobe <span>Catalog Service</span> Panel</div>
     <div class="header-spacer"></div>
     <span id="env-badge" class="env-badge staging">Staging</span>
@@ -208,6 +208,22 @@
   </div>
 
   <script src="app.js"></script>
+
+  <!-- ===== MODAL: DETALLE DE PRODUCTO ===== -->
+  <div id="product-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal modal-product">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span id="product-modal-title">Detalle del producto</span>
+        </div>
+        <button id="btn-close-product-modal" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+      <div class="modal-body product-modal-body">
+        <div id="product-modal-content"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== MODAL: GESTIÓN WEBSITES / STORE VIEWS ===== -->
   <div id="ws-modal-overlay" class="modal-overlay" style="display:none">
