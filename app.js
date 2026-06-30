@@ -491,21 +491,26 @@ function addStoreView() {
 
 // ===== TABS =====
 
-function initTabs() {
+function activateTab(tabName) {
   const tabBtns = document.querySelectorAll('.tab-btn');
   const tabPanels = document.querySelectorAll('.tab-panel');
+
+  tabBtns.forEach((b) => b.classList.remove('active'));
+  tabPanels.forEach((p) => p.classList.remove('active'));
+
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById('panel-' + tabName);
+  if (panel) panel.classList.add('active');
+}
+
+function initTabs() {
+  const tabBtns = document.querySelectorAll('.tab-btn');
 
   tabBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       if (btn.classList.contains('disabled')) return;
-
-      tabBtns.forEach((b) => b.classList.remove('active'));
-      tabPanels.forEach((p) => p.classList.remove('active'));
-
-      btn.classList.add('active');
-      const target = btn.dataset.tab;
-      const panel = document.getElementById('panel-' + target);
-      if (panel) panel.classList.add('active');
+      activateTab(btn.dataset.tab);
     });
   });
 }
@@ -1043,11 +1048,21 @@ function buildCategoryNode(node) {
     ${menuDot}
     <span class="cat-name">${escHtml(node.name || '—')}</span>
     <span class="cat-id">#${escHtml(node.id)}</span>
+    <button class="cat-view-products" type="button" title="Ver productos" aria-label="Ver productos">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    </button>
     ${hiddenBadge}
     ${hasChildren ? `<span class="cat-children-count">${node.children.length}</span>` : ''}
   `;
 
   li.appendChild(row);
+
+  // "Ver productos" link
+  const viewBtn = row.querySelector('.cat-view-products');
+  viewBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCategoryProducts(node.id, node.name);
+  });
 
   if (hasChildren) {
     const childUl = document.createElement('ul');
@@ -1079,6 +1094,187 @@ function setAllCategoriesCollapsed(collapsed) {
       if (toggle) toggle.classList.toggle('collapsed', collapsed);
     }
   });
+}
+
+// ===== CATEGORY PRODUCTS TAB =====
+
+const CATEGORY_PRODUCTS_QUERY = `
+query CategoryProducts($categoryId: String!) {
+  productSearch(
+    phrase: ""
+    filter: [{ attribute: "categoryIds", in: [$categoryId] }]
+  ) {
+    total_count
+    items {
+      productView {
+        sku
+        name
+      }
+    }
+  }
+}
+`.trim();
+
+// Currently selected category for this tab
+let currentCategoryProducts = null; // { id, name }
+
+function initCategoryProductsTab() {
+  const idInput = $('cat-products-id');
+  const searchBtn = $('btn-cat-products-search');
+
+  searchBtn.addEventListener('click', () => {
+    const id = idInput.value.trim();
+    runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null);
+  });
+
+  idInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const id = idInput.value.trim();
+      runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null);
+    }
+  });
+
+  // When the id is edited manually, the category name no longer matches: clear it
+  idInput.addEventListener('input', () => {
+    if (currentCategoryProducts && idInput.value.trim() !== currentCategoryProducts.id) {
+      currentCategoryProducts = null;
+      $('cat-products-context').innerHTML = '';
+    }
+  });
+}
+
+// Called from the "Ver productos" link in the categories tree
+function openCategoryProducts(categoryId, categoryName) {
+  activateTab('category-products');
+  $('cat-products-id').value = String(categoryId);
+  runCategoryProductsSearch(categoryId, categoryName);
+}
+
+async function runCategoryProductsSearch(categoryId, categoryName) {
+  categoryId = String(categoryId || '').trim();
+
+  // Reset state
+  $('cat-products-results').innerHTML = '';
+  $('cat-products-summary').innerHTML = '';
+  $('cat-products-raw-pre').textContent = '';
+  $('cat-products-raw-container').style.display = 'none';
+  $('cat-products-error').style.display = 'none';
+  $('cat-products-loading').classList.remove('visible');
+  $('cat-products-initial-state').style.display = 'none';
+
+  if (!categoryId) {
+    currentCategoryProducts = null;
+    $('cat-products-context').innerHTML = '';
+    showCatProductsError('Introduce un Category ID (ej: 4).');
+    return;
+  }
+
+  currentCategoryProducts = { id: categoryId, name: categoryName || null };
+
+  // Sync the input with the id (when coming from the tree)
+  $('cat-products-id').value = categoryId;
+
+  // Update context header (only show the name block when we know it)
+  if (categoryName) {
+    $('cat-products-context').innerHTML = `
+      <div class="cat-products-ctx-info">
+        <span class="cat-products-ctx-label">Categoría</span>
+        <span class="cat-products-ctx-name">${escHtml(categoryName)}</span>
+      </div>
+    `;
+  } else {
+    $('cat-products-context').innerHTML = '';
+  }
+
+  // Validate config
+  const configErrors = validateConfig();
+  if (configErrors.length > 0) {
+    showCatProductsError(configErrors.map((e) => `• ${e}`).join('\n'));
+    return;
+  }
+
+  $('cat-products-loading').classList.add('visible');
+  $('btn-cat-products-search').disabled = true;
+
+  try {
+    const data = await graphqlFetch(CATEGORY_PRODUCTS_QUERY, { categoryId: String(categoryId) });
+
+    $('cat-products-loading').classList.remove('visible');
+    $('btn-cat-products-search').disabled = false;
+
+    $('cat-products-raw-pre').textContent = JSON.stringify(data, null, 2);
+    $('cat-products-raw-container').style.display = 'block';
+
+    if (data.errors && data.errors.length > 0) {
+      const msgs = data.errors.map((e) => e.message).join('\n');
+      showCatProductsError('Error GraphQL:\n' + msgs);
+      return;
+    }
+
+    const result = data?.data?.productSearch;
+    if (!result) {
+      showCatProductsError('La respuesta no contiene datos de productSearch.');
+      return;
+    }
+
+    renderCategoryProducts(result);
+
+  } catch (err) {
+    $('cat-products-loading').classList.remove('visible');
+    $('btn-cat-products-search').disabled = false;
+    showCatProductsError('Error de red o del servidor:\n' + err.message);
+  }
+}
+
+function showCatProductsError(msg) {
+  const el = $('cat-products-error');
+  el.style.display = 'flex';
+  el.querySelector('.error-text').textContent = msg;
+}
+
+function renderCategoryProducts(result) {
+  const items = result.items || [];
+  const total = result.total_count != null ? result.total_count : items.length;
+  const summary = $('cat-products-summary');
+  const container = $('cat-products-results');
+
+  if (items.length === 0) {
+    summary.innerHTML = '';
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">&#x1F4ED;</div>
+        <p>Esta categoría no tiene productos (o no son visibles para el store view seleccionado).</p>
+      </div>
+    `;
+    return;
+  }
+
+  summary.innerHTML = `
+    <div class="results-count"><strong>${items.length}</strong> producto${items.length !== 1 ? 's' : ''} mostrado${items.length !== 1 ? 's' : ''}${total > items.length ? ` de ${total} totales` : ''}</div>
+  `;
+
+  const list = document.createElement('div');
+  list.className = 'cat-products-list';
+
+  items.forEach((item) => {
+    const pv = item.productView;
+    if (!pv) return;
+
+    const row = document.createElement('div');
+    row.className = 'cat-product-row';
+    row.title = 'Ver detalle del producto';
+    row.innerHTML = `
+      <div class="cat-product-main">
+        <span class="cat-product-name">${escHtml(pv.name || '—')}</span>
+      </div>
+      <span class="product-sku">${escHtml(pv.sku || '—')}</span>
+    `;
+    // Reuse the existing product detail modal
+    row.addEventListener('click', () => openProductModal(pv));
+    list.appendChild(row);
+  });
+
+  container.appendChild(list);
 }
 
 // ===== PRODUCT DETAIL MODAL =====
@@ -1168,5 +1364,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initProductsTab();
   initCategoriesTab();
+  initCategoryProductsTab();
   initProductModal();
 });

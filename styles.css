@@ -1452,3 +1452,102 @@ details.raw-json[open] .summary-chevron {
   margin-left: auto;
   flex-shrink: 0;
 }
+
+/* "Ver productos" icon-only link in category rows */
+.cat-view-products {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--color-accent);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.cat-row:hover .cat-view-products {
+  opacity: 1;
+}
+
+.cat-view-products:hover {
+  background: rgba(235, 93, 0, 0.1);
+  border-color: rgba(235, 93, 0, 0.3);
+}
+
+/* ===== CATEGORY PRODUCTS TAB ===== */
+.cat-products-bar {
+  align-items: flex-end;
+}
+
+.cat-products-context {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  padding-left: 6px;
+}
+
+.cat-products-context:empty {
+  display: none;
+}
+
+.cat-products-ctx-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cat-products-ctx-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+}
+
+.cat-products-ctx-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.cat-products-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cat-product-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.cat-product-row:hover {
+  border-color: var(--color-accent);
+  background: rgba(235, 93, 0, 0.04);
+}
+
+.cat-product-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.cat-product-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  word-break: break-word;
+}
