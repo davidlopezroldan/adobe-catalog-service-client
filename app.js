@@ -832,6 +832,255 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ===== CATEGORIES TAB =====
+
+const CATEGORIES_QUERY = `
+query Categories($ids: [String!]!) {
+  categories(
+    subtree: { depth: 0, startLevel: 5 }
+    ids: $ids
+    roles: ["active"]
+  ) {
+    id
+    name
+    position
+    path
+    roles
+  }
+}
+`.trim();
+
+// Holds the last fetched flat list for re-rendering
+let categoriesData = [];
+
+function initCategoriesTab() {
+  const searchBtn = $('btn-category-search');
+  const rootIdInput = $('category-root-id');
+
+  searchBtn.addEventListener('click', () => runCategorySearch());
+  rootIdInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runCategorySearch();
+  });
+
+  $('btn-expand-all').addEventListener('click', () => setAllCategoriesCollapsed(false));
+  $('btn-collapse-all').addEventListener('click', () => setAllCategoriesCollapsed(true));
+}
+
+async function runCategorySearch() {
+  const rootId = $('category-root-id').value.trim();
+
+  // Clear previous state
+  $('categories-tree').innerHTML = '';
+  $('categories-raw-pre').textContent = '';
+  $('categories-raw-container').style.display = 'none';
+  $('categories-error').style.display = 'none';
+  $('categories-toolbar').style.display = 'none';
+  $('categories-loading').classList.remove('visible');
+  $('categories-initial-state').style.display = 'none';
+  const prevLegend = $('categories-legend');
+  if (prevLegend) prevLegend.remove();
+
+  // Validate config (env + website + store view)
+  const configErrors = validateConfig();
+  if (configErrors.length > 0) {
+    showCategoryError(configErrors.map((e) => `• ${e}`).join('\n'));
+    return;
+  }
+
+  if (!rootId) {
+    showCategoryError('Introduce un Root Category ID (ej: 1).');
+    return;
+  }
+
+  $('categories-loading').classList.add('visible');
+  $('btn-category-search').disabled = true;
+
+  try {
+    const data = await graphqlFetch(CATEGORIES_QUERY, { ids: [rootId] });
+
+    $('categories-loading').classList.remove('visible');
+    $('btn-category-search').disabled = false;
+
+    // Raw JSON
+    $('categories-raw-pre').textContent = JSON.stringify(data, null, 2);
+    $('categories-raw-container').style.display = 'block';
+
+    if (data.errors && data.errors.length > 0) {
+      const msgs = data.errors.map((e) => e.message).join('\n');
+      showCategoryError('Error GraphQL:\n' + msgs);
+      return;
+    }
+
+    const cats = data?.data?.categories;
+    if (!cats) {
+      showCategoryError('La respuesta no contiene datos de categories.');
+      return;
+    }
+
+    categoriesData = cats;
+    renderCategories(cats);
+
+  } catch (err) {
+    $('categories-loading').classList.remove('visible');
+    $('btn-category-search').disabled = false;
+    showCategoryError('Error de red o del servidor:\n' + err.message);
+  }
+}
+
+function showCategoryError(msg) {
+  const el = $('categories-error');
+  el.style.display = 'flex';
+  el.querySelector('.error-text').textContent = msg;
+}
+
+// Build a tree from the flat list using the `path` field (e.g. "1/4/10/13")
+function buildCategoryTree(flatList) {
+  const byId = new Map();
+
+  // Index every node and attach a children array
+  flatList.forEach((cat) => {
+    byId.set(String(cat.id), { ...cat, children: [] });
+  });
+
+  const roots = [];
+
+  byId.forEach((node) => {
+    const parts = String(node.path || '').split('/').filter(Boolean);
+    // parent id is the second-to-last segment in the path
+    const parentId = parts.length >= 2 ? parts[parts.length - 2] : null;
+
+    if (parentId && byId.has(parentId)) {
+      byId.get(parentId).children.push(node);
+    } else {
+      // Parent not present in the result => this is a visible root
+      roots.push(node);
+    }
+  });
+
+  // Sort children by position, then name
+  const sortNodes = (nodes) => {
+    nodes.sort((a, b) => {
+      const pa = a.position ?? 0;
+      const pb = b.position ?? 0;
+      if (pa !== pb) return pa - pb;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    nodes.forEach((n) => sortNodes(n.children));
+  };
+  sortNodes(roots);
+
+  return roots;
+}
+
+function hasMenuRole(cat) {
+  return Array.isArray(cat.roles) && cat.roles.includes('show_in_menu');
+}
+
+function renderCategories(flatList) {
+  const container = $('categories-tree');
+  container.innerHTML = '';
+
+  $('categories-count').textContent = flatList.length;
+
+  if (flatList.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">&#x1F4C1;</div>
+        <p>No se encontraron categorías para ese Root Category ID.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Count invisible (no show_in_menu)
+  const invisibleCount = flatList.filter((c) => !hasMenuRole(c)).length;
+  const toolbar = $('categories-toolbar');
+  toolbar.style.display = 'flex';
+
+  // Build legend right after the toolbar
+  const legend = document.createElement('div');
+  legend.id = 'categories-legend';
+  legend.className = 'tree-legend';
+  legend.innerHTML = `
+    <span class="tree-legend-item"><span class="cat-menu-dot visible"></span> Visible en menú</span>
+    <span class="tree-legend-item"><span class="cat-menu-dot hidden"></span> Oculta en menú (${invisibleCount})</span>
+  `;
+  toolbar.parentNode.insertBefore(legend, toolbar.nextSibling);
+
+  const tree = buildCategoryTree(flatList);
+  const ul = document.createElement('ul');
+  ul.className = 'cat-tree-root';
+
+  tree.forEach((node) => {
+    ul.appendChild(buildCategoryNode(node));
+  });
+
+  container.appendChild(ul);
+}
+
+function buildCategoryNode(node) {
+  const li = document.createElement('li');
+  li.className = 'cat-node';
+
+  const hasChildren = node.children && node.children.length > 0;
+  const isVisible = hasMenuRole(node);
+
+  const row = document.createElement('div');
+  row.className = 'cat-row' + (isVisible ? '' : ' cat-hidden-menu');
+
+  const menuDot = isVisible
+    ? '<span class="cat-menu-dot visible" title="Visible en menú (show_in_menu)"></span>'
+    : '<span class="cat-menu-dot hidden" title="Oculta en menú (sin show_in_menu)"></span>';
+
+  const hiddenBadge = isVisible
+    ? ''
+    : '<span class="cat-hidden-badge" title="No tiene el rol show_in_menu">oculta</span>';
+
+  row.innerHTML = `
+    <span class="cat-toggle ${hasChildren ? '' : 'cat-toggle-empty'}">
+      ${hasChildren ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>' : ''}
+    </span>
+    ${menuDot}
+    <span class="cat-name">${escHtml(node.name || '—')}</span>
+    <span class="cat-id">#${escHtml(node.id)}</span>
+    ${hiddenBadge}
+    ${hasChildren ? `<span class="cat-children-count">${node.children.length}</span>` : ''}
+  `;
+
+  li.appendChild(row);
+
+  if (hasChildren) {
+    const childUl = document.createElement('ul');
+    childUl.className = 'cat-children';
+    node.children.forEach((child) => {
+      childUl.appendChild(buildCategoryNode(child));
+    });
+    li.appendChild(childUl);
+
+    const toggle = row.querySelector('.cat-toggle');
+    const toggleFn = () => {
+      const collapsed = li.classList.toggle('collapsed');
+      toggle.classList.toggle('collapsed', collapsed);
+    };
+    toggle.addEventListener('click', (e) => { e.stopPropagation(); toggleFn(); });
+    row.addEventListener('click', toggleFn);
+  }
+
+  return li;
+}
+
+function setAllCategoriesCollapsed(collapsed) {
+  const nodes = $('categories-tree').querySelectorAll('.cat-node');
+  nodes.forEach((li) => {
+    // Only nodes that have children
+    if (li.querySelector(':scope > .cat-children')) {
+      li.classList.toggle('collapsed', collapsed);
+      const toggle = li.querySelector(':scope > .cat-row > .cat-toggle');
+      if (toggle) toggle.classList.toggle('collapsed', collapsed);
+    }
+  });
+}
+
 // ===== PRODUCT DETAIL MODAL =====
 
 function initProductModal() {
@@ -918,5 +1167,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebsiteManager();
   initTabs();
   initProductsTab();
+  initCategoriesTab();
   initProductModal();
 });

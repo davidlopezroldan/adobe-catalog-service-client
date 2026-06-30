@@ -108,10 +108,9 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           Productos
         </button>
-        <button class="tab-btn disabled" data-tab="categories">
+        <button class="tab-btn" data-tab="categories">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           Categorías
-          <span class="tab-pill">Próximo</span>
         </button>
         <button class="tab-btn disabled" data-tab="other">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
@@ -188,10 +187,77 @@
 
       <!-- ===== PANEL: CATEGORÍAS ===== -->
       <div id="panel-categories" class="tab-panel">
-        <div class="placeholder-panel">
-          <div class="placeholder-icon">&#x1F4C1;</div>
-          <h2>Categorías</h2>
-          <p>Esta pestaña está reservada para consultar categorías del Catalog Service. Próximamente disponible.</p>
+
+        <!-- Query bar -->
+        <div class="query-panel">
+          <div class="query-field" style="max-width:180px">
+            <label for="category-root-id">Root Category ID</label>
+            <input
+              id="category-root-id"
+              type="text"
+              value="1"
+              placeholder="Ej: 1"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button id="btn-category-search" class="btn btn-primary" style="padding:9px 20px;font-size:13px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Cargar categorías
+          </button>
+        </div>
+
+        <!-- Results area -->
+        <div class="results-area">
+
+          <!-- Error message -->
+          <div id="categories-error" class="status-message error" style="display:none">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <pre class="error-text" style="white-space:pre-wrap;font-family:var(--font);font-size:13px;margin:0"></pre>
+          </div>
+
+          <!-- Loading -->
+          <div id="categories-loading" class="loading-indicator">
+            <div class="spinner"></div>
+            <span>Consultando Adobe Catalog Service...</span>
+          </div>
+
+          <!-- Tree toolbar -->
+          <div id="categories-toolbar" class="tree-toolbar" style="display:none">
+            <div class="results-count"><strong id="categories-count">0</strong> categorías</div>
+            <div class="tree-toolbar-actions">
+              <button id="btn-expand-all" class="btn btn-secondary btn-sm">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 13 12 18 17 13"/><polyline points="7 6 12 11 17 6"/></svg>
+                Expandir todo
+              </button>
+              <button id="btn-collapse-all" class="btn btn-secondary btn-sm">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>
+                Colapsar todo
+              </button>
+            </div>
+          </div>
+
+          <!-- Category tree -->
+          <div id="categories-tree" class="category-tree"></div>
+
+          <!-- Raw JSON -->
+          <div id="categories-raw-container" class="raw-json-container" style="display:none">
+            <details class="raw-json">
+              <summary>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                Ver JSON crudo de la respuesta
+                <svg class="summary-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:auto"><polyline points="9 18 15 12 9 6"/></svg>
+              </summary>
+              <pre id="categories-raw-pre" class="raw-json-pre"></pre>
+            </details>
+          </div>
+
+          <!-- Initial empty state -->
+          <div id="categories-initial-state" class="empty-state">
+            <div class="empty-state-icon">&#x1F4C1;</div>
+            <p>Indica el <strong>Root Category ID</strong> de partida y pulsa <strong>Cargar categorías</strong> para ver el árbol de categorías.</p>
+          </div>
+
         </div>
       </div>
 
