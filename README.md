@@ -11,7 +11,13 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
   - Producción: `https://catalog-service.adobe.io/graphql`
 - **Gestión de Websites y Store Views** desde un modal, también persistida en `localStorage`. Al seleccionar un website se filtran sus store views asociadas.
 - **Pestaña Productos:** búsqueda con `productSearch` por `phrase`, resultados en tarjetas con SKU y atributos, sección de facets y modal de detalle por producto.
-- **Pestaña Categorías:** árbol jerárquico (reconstruido desde el campo `path`) con expandir/colapsar todo y por nodo. Indica visualmente las categorías ocultas en menú (sin el rol `show_in_menu`).
+- **Pestaña Categorías:** árbol jerárquico (reconstruido desde el campo `path`) con expandir/colapsar todo y por nodo. Indica visualmente las categorías ocultas en menú (sin el rol `show_in_menu`). Cada categoría tiene un acceso directo para ver sus productos.
+- **Pestaña Productos de Categorías:** lista los productos de una categoría (filtro `categoryIds` en `productSearch`). Se puede abrir desde el árbol de categorías o introduciendo directamente un Category ID.
+- **Paginación** en ambas pestañas de productos (`page_size` + `current_page`), con controles de página encima de los resultados.
+- **Ajustes** (icono de engranaje en la cabecera) con el tamaño de página (`page_size`, por defecto 500) persistido en `localStorage`.
+- **Exportar / importar configuración** a un archivo JSON (entornos, websites/store views, ajustes y últimas selecciones) para compartirla con el equipo.
+- **Persistencia de las últimas selecciones** (entorno, website, store view, último `phrase` y última category id) restauradas al recargar.
+- **Navegación por hash de URL** (`#products`, `#categories`, `#category-products`): la pestaña activa se mantiene al recargar y es enlazable.
 - **JSON crudo** de cada respuesta, colapsado por defecto.
 
 ## Headers enviados
@@ -32,7 +38,8 @@ Al ser una aplicación estática, basta con abrir `index.html` en el navegador.
 
 1. Añade un entorno con su `Magento-Environment-Id` y su tipo (Staging / Producción).
 2. Selecciona website y store view (gestionables desde el botón **Gestionar**).
-3. Usa las pestañas **Productos** o **Categorías** para lanzar consultas.
+3. Usa las pestañas **Productos**, **Categorías** o **Productos de Categorías** para lanzar consultas.
+4. Desde **Ajustes** (engranaje en la cabecera) puedes cambiar el tamaño de página y exportar/importar tu configuración.
 
 ## Estructura
 
