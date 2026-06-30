@@ -766,17 +766,24 @@ function addStoreView() {
 
 // ===== TABS =====
 
-function activateTab(tabName) {
+function activateTab(tabName, updateHash = true) {
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  // Ignore unknown or disabled tabs
+  if (!btn || btn.classList.contains('disabled')) return;
+
   const tabBtns = document.querySelectorAll('.tab-btn');
   const tabPanels = document.querySelectorAll('.tab-panel');
 
   tabBtns.forEach((b) => b.classList.remove('active'));
   tabPanels.forEach((p) => p.classList.remove('active'));
 
-  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
-  if (btn) btn.classList.add('active');
+  btn.classList.add('active');
   const panel = document.getElementById('panel-' + tabName);
   if (panel) panel.classList.add('active');
+
+  if (updateHash && location.hash !== `#${tabName}`) {
+    location.hash = tabName;
+  }
 }
 
 function initTabs() {
@@ -788,6 +795,18 @@ function initTabs() {
       activateTab(btn.dataset.tab);
     });
   });
+
+  // Sync with browser navigation (back/forward, manual hash edits)
+  window.addEventListener('hashchange', () => {
+    const tab = location.hash.replace(/^#/, '');
+    if (tab) activateTab(tab, false);
+  });
+
+  // Activate the tab from the current URL hash on load
+  const initialTab = location.hash.replace(/^#/, '');
+  if (initialTab && document.querySelector(`.tab-btn[data-tab="${initialTab}"]:not(.disabled)`)) {
+    activateTab(initialTab, false);
+  }
 }
 
 // ===== BUILD HEADERS =====
