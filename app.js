@@ -12,6 +12,12 @@ const DEFAULT_WEBSITE_STORE_MAP = {};
 
 const LS_KEY = 'catalogService.environments';
 const LS_WS_KEY = 'catalogService.websites';
+const LS_SETTINGS_KEY = 'catalogService.settings';
+
+// Default application settings
+const DEFAULT_SETTINGS = {
+  resultLimit: 500, // productSearch page_size
+};
 
 // ===== STATE =====
 let environments = [];
@@ -21,8 +27,85 @@ let activeEnvironment = null;
 let websites = {};
 let selectedWebsiteCode = null; // for the manager modal
 
+// Application settings
+let settings = { ...DEFAULT_SETTINGS };
+
 // ===== DOM REFS =====
 const $ = (id) => document.getElementById(id);
+
+// ===== SETTINGS LOCAL STORAGE =====
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(LS_SETTINGS_KEY);
+    settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+  } catch {
+    settings = { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+// Returns a valid positive integer page_size, falling back to the default
+function getResultLimit() {
+  const n = parseInt(settings.resultLimit, 10);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_SETTINGS.resultLimit;
+  return n;
+}
+
+// ===== SETTINGS MODAL =====
+
+function initSettings() {
+  loadSettings();
+
+  $('btn-open-settings').addEventListener('click', openSettingsModal);
+  $('btn-close-settings').addEventListener('click', closeSettingsModal);
+  $('settings-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('settings-modal-overlay')) closeSettingsModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('settings-modal-overlay').style.display !== 'none') {
+      closeSettingsModal();
+    }
+  });
+
+  $('btn-save-settings').addEventListener('click', () => {
+    const input = $('setting-result-limit');
+    const val = parseInt(input.value, 10);
+    if (!Number.isFinite(val) || val < 1 || val > 10000) {
+      input.style.borderColor = 'var(--color-error)';
+      input.focus();
+      setTimeout(() => { input.style.borderColor = ''; }, 2000);
+      return;
+    }
+    settings.resultLimit = val;
+    saveSettings();
+    closeSettingsModal();
+  });
+
+  $('btn-reset-settings').addEventListener('click', () => {
+    settings = { ...DEFAULT_SETTINGS };
+    saveSettings();
+    fillSettingsForm();
+  });
+}
+
+function fillSettingsForm() {
+  $('setting-result-limit').value = getResultLimit();
+}
+
+function openSettingsModal() {
+  fillSettingsForm();
+  $('settings-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSettingsModal() {
+  $('settings-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
 
 // ===== LOCAL STORAGE =====
 
@@ -575,11 +658,105 @@ async function graphqlFetch(query, variables = {}) {
   return json;
 }
 
+// ===== PAGINATION (shared) =====
+
+// Builds pagination controls into `container`.
+// pageInfo: { current_page, total_pages }
+// onGo: function(page) called when the user picks a page
+function renderPagination(container, pageInfo, totalCount, onGo) {
+  container.innerHTML = '';
+
+  const current = pageInfo && pageInfo.current_page ? pageInfo.current_page : 1;
+  const totalPages = pageInfo && pageInfo.total_pages ? pageInfo.total_pages : 1;
+
+  if (totalPages <= 1) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'flex';
+
+  const makeBtn = (label, page, opts = {}) => {
+    const btn = document.createElement('button');
+    btn.className = 'page-btn' + (opts.active ? ' active' : '') + (opts.ellipsis ? ' page-ellipsis' : '');
+    btn.innerHTML = label;
+    if (opts.disabled || opts.ellipsis) {
+      btn.disabled = true;
+    } else {
+      btn.addEventListener('click', () => onGo(page));
+    }
+    return btn;
+  };
+
+  // Prev
+  container.appendChild(makeBtn(
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>',
+    current - 1,
+    { disabled: current <= 1 }
+  ));
+
+  // Page numbers with ellipsis (window around current)
+  const pages = computePageList(current, totalPages);
+  pages.forEach((p) => {
+    if (p === '...') {
+      container.appendChild(makeBtn('&hellip;', null, { ellipsis: true }));
+    } else {
+      container.appendChild(makeBtn(String(p), p, { active: p === current }));
+    }
+  });
+
+  // Next
+  container.appendChild(makeBtn(
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>',
+    current + 1,
+    { disabled: current >= totalPages }
+  ));
+
+  // Info label
+  const info = document.createElement('span');
+  info.className = 'page-info-label';
+  info.textContent = `Página ${current} de ${totalPages}${totalCount != null ? ` · ${totalCount} resultados` : ''}`;
+  container.appendChild(info);
+}
+
+// Returns an array like [1, '...', 4, 5, 6, '...', 20]
+function computePageList(current, totalPages) {
+  const delta = 2;
+  const range = [];
+  const result = [];
+  let last;
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= current - delta && i <= current + delta)) {
+      range.push(i);
+    }
+  }
+
+  range.forEach((i) => {
+    if (last) {
+      if (i - last === 2) {
+        result.push(last + 1);
+      } else if (i - last > 2) {
+        result.push('...');
+      }
+    }
+    result.push(i);
+    last = i;
+  });
+
+  return result;
+}
+
 // ===== PRODUCTS TAB =====
 
 const PRODUCT_SEARCH_QUERY = `
-query ProductSearch($phrase: String!) {
-  productSearch(phrase: $phrase) {
+query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int) {
+  productSearch(phrase: $phrase, page_size: $pageSize, current_page: $currentPage) {
+    total_count
+    page_info {
+      current_page
+      page_size
+      total_pages
+    }
     items {
       productView {
         sku
@@ -608,19 +785,29 @@ function initProductsTab() {
   const searchBtn = $('btn-product-search');
   const phraseInput = $('product-phrase');
 
-  searchBtn.addEventListener('click', () => runProductSearch());
+  searchBtn.addEventListener('click', () => runProductSearch(1));
 
   phraseInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') runProductSearch();
+    if (e.key === 'Enter') runProductSearch(1);
   });
 }
 
-async function runProductSearch() {
-  const phrase = $('product-phrase').value.trim();
+// Keeps the phrase used for the active search so pagination reuses it
+let currentProductPhrase = '';
+
+async function runProductSearch(page = 1) {
+  // On a fresh search (page 1 triggered by the user) read the input;
+  // on pagination reuse the stored phrase.
+  if (page === 1) {
+    currentProductPhrase = $('product-phrase').value.trim();
+  }
+  const phrase = currentProductPhrase;
 
   // Clear previous results
   $('products-results').innerHTML = '';
   $('products-facets').innerHTML = '';
+  $('products-pagination').innerHTML = '';
+  $('products-pagination').style.display = 'none';
   $('products-raw-pre').textContent = '';
   $('products-raw-container').style.display = 'none';
   $('products-error').style.display = 'none';
@@ -644,7 +831,11 @@ async function runProductSearch() {
   $('btn-product-search').disabled = true;
 
   try {
-    const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, { phrase });
+    const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, {
+      phrase,
+      pageSize: getResultLimit(),
+      currentPage: page,
+    });
 
     $('products-loading').classList.remove('visible');
     $('btn-product-search').disabled = false;
@@ -667,6 +858,10 @@ async function runProductSearch() {
 
     renderProducts(result);
 
+    // Scroll results back to top on page change
+    const area = $('products-results').closest('.results-area');
+    if (area) area.scrollTop = 0;
+
   } catch (err) {
     $('products-loading').classList.remove('visible');
     $('btn-product-search').disabled = false;
@@ -683,6 +878,8 @@ function showProductError(msg) {
 function renderProducts(result) {
   const items = result.items || [];
   const facets = result.facets || [];
+  const total = result.total_count != null ? result.total_count : items.length;
+  const pageInfo = result.page_info || { current_page: 1, total_pages: 1, page_size: getResultLimit() };
 
   // Summary
   const summary = $('products-results-summary');
@@ -694,11 +891,16 @@ function renderProducts(result) {
         <p>No se encontraron productos para la búsqueda.</p>
       </div>
     `;
+    $('products-pagination').style.display = 'none';
   } else {
+    const pageSize = pageInfo.page_size || getResultLimit();
+    const from = (pageInfo.current_page - 1) * pageSize + 1;
+    const to = from + items.length - 1;
     summary.innerHTML = `
-      <div class="results-count"><strong>${items.length}</strong> producto${items.length !== 1 ? 's' : ''} encontrado${items.length !== 1 ? 's' : ''}</div>
+      <div class="results-count"><strong>${total}</strong> producto${total !== 1 ? 's' : ''} en total · mostrando ${from}–${to}</div>
     `;
     renderProductCards(items);
+    renderPagination($('products-pagination'), pageInfo, total, (p) => runProductSearch(p));
   }
 
   // Facets
@@ -1099,12 +1301,19 @@ function setAllCategoriesCollapsed(collapsed) {
 // ===== CATEGORY PRODUCTS TAB =====
 
 const CATEGORY_PRODUCTS_QUERY = `
-query CategoryProducts($categoryId: String!) {
+query CategoryProducts($categoryId: String!, $pageSize: Int, $currentPage: Int) {
   productSearch(
     phrase: ""
+    page_size: $pageSize
+    current_page: $currentPage
     filter: [{ attribute: "categoryIds", in: [$categoryId] }]
   ) {
     total_count
+    page_info {
+      current_page
+      page_size
+      total_pages
+    }
     items {
       productView {
         sku
@@ -1124,13 +1333,13 @@ function initCategoryProductsTab() {
 
   searchBtn.addEventListener('click', () => {
     const id = idInput.value.trim();
-    runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null);
+    runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null, 1);
   });
 
   idInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const id = idInput.value.trim();
-      runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null);
+      runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null, 1);
     }
   });
 
@@ -1147,15 +1356,17 @@ function initCategoryProductsTab() {
 function openCategoryProducts(categoryId, categoryName) {
   activateTab('category-products');
   $('cat-products-id').value = String(categoryId);
-  runCategoryProductsSearch(categoryId, categoryName);
+  runCategoryProductsSearch(categoryId, categoryName, 1);
 }
 
-async function runCategoryProductsSearch(categoryId, categoryName) {
+async function runCategoryProductsSearch(categoryId, categoryName, page = 1) {
   categoryId = String(categoryId || '').trim();
 
   // Reset state
   $('cat-products-results').innerHTML = '';
   $('cat-products-summary').innerHTML = '';
+  $('cat-products-pagination').innerHTML = '';
+  $('cat-products-pagination').style.display = 'none';
   $('cat-products-raw-pre').textContent = '';
   $('cat-products-raw-container').style.display = 'none';
   $('cat-products-error').style.display = 'none';
@@ -1197,7 +1408,11 @@ async function runCategoryProductsSearch(categoryId, categoryName) {
   $('btn-cat-products-search').disabled = true;
 
   try {
-    const data = await graphqlFetch(CATEGORY_PRODUCTS_QUERY, { categoryId: String(categoryId) });
+    const data = await graphqlFetch(CATEGORY_PRODUCTS_QUERY, {
+      categoryId: String(categoryId),
+      pageSize: getResultLimit(),
+      currentPage: page,
+    });
 
     $('cat-products-loading').classList.remove('visible');
     $('btn-cat-products-search').disabled = false;
@@ -1219,6 +1434,9 @@ async function runCategoryProductsSearch(categoryId, categoryName) {
 
     renderCategoryProducts(result);
 
+    const area = $('cat-products-results').closest('.results-area');
+    if (area) area.scrollTop = 0;
+
   } catch (err) {
     $('cat-products-loading').classList.remove('visible');
     $('btn-cat-products-search').disabled = false;
@@ -1235,11 +1453,13 @@ function showCatProductsError(msg) {
 function renderCategoryProducts(result) {
   const items = result.items || [];
   const total = result.total_count != null ? result.total_count : items.length;
+  const pageInfo = result.page_info || { current_page: 1, total_pages: 1, page_size: getResultLimit() };
   const summary = $('cat-products-summary');
   const container = $('cat-products-results');
 
   if (items.length === 0) {
     summary.innerHTML = '';
+    $('cat-products-pagination').style.display = 'none';
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">&#x1F4ED;</div>
@@ -1249,9 +1469,18 @@ function renderCategoryProducts(result) {
     return;
   }
 
+  const pageSize = pageInfo.page_size || getResultLimit();
+  const from = (pageInfo.current_page - 1) * pageSize + 1;
+  const to = from + items.length - 1;
   summary.innerHTML = `
-    <div class="results-count"><strong>${items.length}</strong> producto${items.length !== 1 ? 's' : ''} mostrado${items.length !== 1 ? 's' : ''}${total > items.length ? ` de ${total} totales` : ''}</div>
+    <div class="results-count"><strong>${total}</strong> producto${total !== 1 ? 's' : ''} en total · mostrando ${from}–${to}</div>
   `;
+
+  renderPagination($('cat-products-pagination'), pageInfo, total, (p) => {
+    if (currentCategoryProducts) {
+      runCategoryProductsSearch(currentCategoryProducts.id, currentCategoryProducts.name, p);
+    }
+  });
 
   const list = document.createElement('div');
   list.className = 'cat-products-list';
@@ -1358,6 +1587,7 @@ function buildProductModalContent(pv) {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadWebsites();
+  initSettings();
   initEnvironmentManager();
   initWebsiteSelector();
   initWebsiteManager();

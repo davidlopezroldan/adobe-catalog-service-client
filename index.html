@@ -17,7 +17,42 @@
     <div class="app-title">Adobe <span>Catalog Service</span> Panel</div>
     <div class="header-spacer"></div>
     <span id="env-badge" class="env-badge staging">Staging</span>
+    <button id="btn-open-settings" class="btn btn-secondary btn-sm" title="Ajustes de la aplicación" style="margin-left:12px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Ajustes
+    </button>
   </header>
+
+  <!-- ===== SETTINGS MODAL ===== -->
+  <div id="settings-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal modal-settings">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Ajustes de la aplicación
+        </div>
+        <button id="btn-close-settings" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+      <div class="modal-body settings-body">
+
+        <div class="settings-section">
+          <div class="settings-section-title">Consultas GraphQL</div>
+
+          <div class="settings-field">
+            <label for="setting-result-limit">Resultados por página (page_size)</label>
+            <input id="setting-result-limit" type="number" min="1" max="10000" step="1" placeholder="500" />
+            <p class="settings-hint">Número de productos por página en las llamadas <code>productSearch</code> (Productos y Productos de Categoría). Por defecto <strong>500</strong>. Adobe permite paginar hasta 10.000.</p>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="btn-reset-settings" class="btn btn-secondary">Restaurar por defecto</button>
+          <button id="btn-save-settings" class="btn btn-primary">Guardar ajustes</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
 
   <!-- ===== BODY ===== -->
   <div class="app-body">
@@ -162,6 +197,9 @@
           <!-- Results summary -->
           <div id="products-results-summary" class="results-summary"></div>
 
+          <!-- Pagination -->
+          <div id="products-pagination" class="pagination" style="display:none"></div>
+
           <!-- Product cards -->
           <div id="products-results"></div>
 
@@ -304,6 +342,9 @@
 
           <!-- Results summary -->
           <div id="cat-products-summary" class="results-summary"></div>
+
+          <!-- Pagination -->
+          <div id="cat-products-pagination" class="pagination" style="display:none"></div>
 
           <!-- Product list -->
           <div id="cat-products-results"></div>

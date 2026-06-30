@@ -1551,3 +1551,127 @@ details.raw-json[open] .summary-chevron {
   color: var(--color-text);
   word-break: break-word;
 }
+
+/* ===== SETTINGS MODAL ===== */
+.modal-settings {
+  max-width: 520px;
+}
+
+.settings-body {
+  display: block;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.settings-section {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-text-muted);
+  margin-bottom: 16px;
+}
+
+.settings-field {
+  margin-bottom: 4px;
+}
+
+.settings-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 7px;
+}
+
+.settings-field input {
+  max-width: 200px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+.settings-hint code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--color-sku);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+}
+
+/* ===== PAGINATION ===== */
+.pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px 0;
+}
+
+.page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+  border-color: var(--color-accent);
+  background: rgba(235, 93, 0, 0.06);
+}
+
+.page-btn.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  cursor: default;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-btn.page-ellipsis {
+  border-color: transparent;
+  background: none;
+  cursor: default;
+  opacity: 0.6;
+  min-width: 20px;
+  padding: 0 2px;
+}
+
+.page-info-label {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
