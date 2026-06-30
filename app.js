@@ -13,10 +13,20 @@ const DEFAULT_WEBSITE_STORE_MAP = {};
 const LS_KEY = 'catalogService.environments';
 const LS_WS_KEY = 'catalogService.websites';
 const LS_SETTINGS_KEY = 'catalogService.settings';
+const LS_LAST_USED_KEY = 'catalogService.lastUsed';
 
 // Default application settings
 const DEFAULT_SETTINGS = {
   resultLimit: 500, // productSearch page_size
+};
+
+// Last used selections/values, persisted so the panel restores them on reload
+const DEFAULT_LAST_USED = {
+  environmentId: null,   // activeEnvironment.id
+  website: null,         // website code
+  storeView: null,       // store view code
+  productPhrase: '',     // Products tab phrase
+  categoryProductId: '', // Category Products tab category id
 };
 
 // ===== STATE =====
@@ -30,8 +40,32 @@ let selectedWebsiteCode = null; // for the manager modal
 // Application settings
 let settings = { ...DEFAULT_SETTINGS };
 
+// Last used selections/values
+let lastUsed = { ...DEFAULT_LAST_USED };
+
 // ===== DOM REFS =====
 const $ = (id) => document.getElementById(id);
+
+// ===== LAST USED LOCAL STORAGE =====
+
+function loadLastUsed() {
+  try {
+    const raw = localStorage.getItem(LS_LAST_USED_KEY);
+    lastUsed = raw ? { ...DEFAULT_LAST_USED, ...JSON.parse(raw) } : { ...DEFAULT_LAST_USED };
+  } catch {
+    lastUsed = { ...DEFAULT_LAST_USED };
+  }
+}
+
+function saveLastUsed() {
+  localStorage.setItem(LS_LAST_USED_KEY, JSON.stringify(lastUsed));
+}
+
+// Update one key and persist
+function setLastUsed(key, value) {
+  lastUsed[key] = value;
+  saveLastUsed();
+}
 
 // ===== SETTINGS LOCAL STORAGE =====
 
@@ -135,6 +169,7 @@ function exportConfig() {
       environments: safeParse(localStorage.getItem(LS_KEY), []),
       websites: safeParse(localStorage.getItem(LS_WS_KEY), {}),
       settings: safeParse(localStorage.getItem(LS_SETTINGS_KEY), DEFAULT_SETTINGS),
+      lastUsed: safeParse(localStorage.getItem(LS_LAST_USED_KEY), DEFAULT_LAST_USED),
     },
   };
 
@@ -179,7 +214,7 @@ function applyImportedConfig(parsed) {
     return;
   }
 
-  const hasAny = ['environments', 'websites', 'settings'].some((k) => k in data);
+  const hasAny = ['environments', 'websites', 'settings', 'lastUsed'].some((k) => k in data);
   if (!hasAny) {
     showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
     return;
@@ -199,9 +234,13 @@ function applyImportedConfig(parsed) {
   if ('settings' in data && data.settings && typeof data.settings === 'object') {
     localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(data.settings));
   }
+  if ('lastUsed' in data && data.lastUsed && typeof data.lastUsed === 'object') {
+    localStorage.setItem(LS_LAST_USED_KEY, JSON.stringify(data.lastUsed));
+  }
 
   // Reload in-memory state from storage
   loadSettings();
+  loadLastUsed();
   loadEnvironments();
   loadWebsites();
 
@@ -209,8 +248,15 @@ function applyImportedConfig(parsed) {
   activeEnvironment = null;
   selectedWebsiteCode = null;
   renderEnvironments();
+  // Clear current DOM selections so the imported lastUsed takes effect
+  $('website-select').value = '';
+  $('store-view-select').value = '';
   populateSidebarWebsites();
   fillSettingsForm();
+
+  // Restore last-used input values
+  $('product-phrase').value = lastUsed.productPhrase || '';
+  $('cat-products-id').value = lastUsed.categoryProductId || '';
 
   showConfigIoMessage('success', 'Configuración importada correctamente.');
 }
@@ -300,6 +346,7 @@ function renderEnvironments() {
     item.addEventListener('click', (e) => {
       if (e.target.closest('.env-item-delete')) return;
       activeEnvironment = env;
+      setLastUsed('environmentId', env.id);
       renderEnvironments();
       updateActiveEnvDisplay();
     });
@@ -319,9 +366,15 @@ function renderEnvironments() {
     list.appendChild(item);
   });
 
-  // Auto-select first if none active
+  // Select last-used environment if available, otherwise the first one
   if (!activeEnvironment && environments.length > 0) {
-    activeEnvironment = environments[0];
+    const remembered = lastUsed.environmentId
+      ? environments.find((e) => e.id === lastUsed.environmentId)
+      : null;
+    activeEnvironment = remembered || environments[0];
+    if (activeEnvironment.id !== lastUsed.environmentId) {
+      setLastUsed('environmentId', activeEnvironment.id);
+    }
     renderEnvironments();
   }
 
@@ -445,15 +498,24 @@ function getEndpoint() {
 
 function initWebsiteSelector() {
   const websiteSelect = $('website-select');
+  const storeViewSelect = $('store-view-select');
+
   websiteSelect.addEventListener('change', () => {
+    setLastUsed('website', websiteSelect.value);
     populateSidebarStoreViews(websiteSelect.value);
   });
+
+  storeViewSelect.addEventListener('change', () => {
+    setLastUsed('storeView', storeViewSelect.value);
+  });
+
   populateSidebarWebsites();
 }
 
 function populateSidebarWebsites() {
   const websiteSelect = $('website-select');
-  const previousValue = websiteSelect.value;
+  // Prefer the current DOM value, fall back to the last-used website
+  const previousValue = websiteSelect.value || lastUsed.website || '';
   websiteSelect.innerHTML = '';
 
   const codes = Object.keys(websites).sort();
@@ -475,17 +537,21 @@ function populateSidebarWebsites() {
     websiteSelect.appendChild(opt);
   });
 
-  // Restore previous selection if still exists
+  // Restore previous/last-used selection if it still exists
   if (previousValue && websites[previousValue]) {
     websiteSelect.value = previousValue;
   }
+
+  // Keep lastUsed in sync with the effective selection
+  if (websiteSelect.value) setLastUsed('website', websiteSelect.value);
 
   populateSidebarStoreViews(websiteSelect.value);
 }
 
 function populateSidebarStoreViews(websiteCode) {
   const storeViewSelect = $('store-view-select');
-  const previousValue = storeViewSelect.value;
+  // Prefer the current DOM value, fall back to the last-used store view
+  const previousValue = storeViewSelect.value || lastUsed.storeView || '';
   storeViewSelect.innerHTML = '';
 
   const views = websiteCode && websites[websiteCode]
@@ -510,6 +576,9 @@ function populateSidebarStoreViews(websiteCode) {
   if (previousValue && views.includes(previousValue)) {
     storeViewSelect.value = previousValue;
   }
+
+  // Keep lastUsed in sync with the effective selection
+  if (storeViewSelect.value) setLastUsed('storeView', storeViewSelect.value);
 }
 
 // ===== WEBSITE MANAGER MODAL =====
@@ -908,6 +977,11 @@ function initProductsTab() {
   const searchBtn = $('btn-product-search');
   const phraseInput = $('product-phrase');
 
+  // Restore last used phrase
+  if (lastUsed.productPhrase) {
+    phraseInput.value = lastUsed.productPhrase;
+  }
+
   searchBtn.addEventListener('click', () => runProductSearch(1));
 
   phraseInput.addEventListener('keydown', (e) => {
@@ -923,6 +997,7 @@ async function runProductSearch(page = 1) {
   // on pagination reuse the stored phrase.
   if (page === 1) {
     currentProductPhrase = $('product-phrase').value.trim();
+    setLastUsed('productPhrase', currentProductPhrase);
   }
   const phrase = currentProductPhrase;
 
@@ -1454,6 +1529,11 @@ function initCategoryProductsTab() {
   const idInput = $('cat-products-id');
   const searchBtn = $('btn-cat-products-search');
 
+  // Restore last used category id
+  if (lastUsed.categoryProductId) {
+    idInput.value = lastUsed.categoryProductId;
+  }
+
   searchBtn.addEventListener('click', () => {
     const id = idInput.value.trim();
     runCategoryProductsSearch(id, currentCategoryProducts && currentCategoryProducts.id === id ? currentCategoryProducts.name : null, 1);
@@ -1504,6 +1584,9 @@ async function runCategoryProductsSearch(categoryId, categoryName, page = 1) {
   }
 
   currentCategoryProducts = { id: categoryId, name: categoryName || null };
+
+  // Remember the last used category id
+  setLastUsed('categoryProductId', categoryId);
 
   // Sync the input with the id (when coming from the tree)
   $('cat-products-id').value = categoryId;
@@ -1709,6 +1792,7 @@ function buildProductModalContent(pv) {
 // ===== INIT =====
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadLastUsed();
   loadWebsites();
   initSettings();
   initEnvironmentManager();
