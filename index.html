@@ -45,6 +45,25 @@
           </div>
         </div>
 
+        <div class="settings-section">
+          <div class="settings-section-title">Configuración (import / export)</div>
+          <p class="settings-hint" style="margin-top:0;margin-bottom:12px;">
+            Exporta toda tu configuración (entornos, websites/store views y ajustes) a un archivo para compartirla con tu equipo. Al importar, se reemplazará tu configuración actual.
+          </p>
+          <div class="settings-io-actions">
+            <button id="btn-export-config" class="btn btn-secondary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Exportar configuración
+            </button>
+            <button id="btn-import-config" class="btn btn-secondary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Importar configuración
+            </button>
+            <input id="import-config-file" type="file" accept="application/json,.json" style="display:none" />
+          </div>
+          <div id="config-io-message" class="settings-io-message" style="display:none"></div>
+        </div>
+
         <div class="settings-actions">
           <button id="btn-reset-settings" class="btn btn-secondary">Restaurar por defecto</button>
           <button id="btn-save-settings" class="btn btn-primary">Guardar ajustes</button>

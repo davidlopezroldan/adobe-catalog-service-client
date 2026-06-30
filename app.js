@@ -90,6 +90,11 @@ function initSettings() {
     saveSettings();
     fillSettingsForm();
   });
+
+  // Export / import configuration
+  $('btn-export-config').addEventListener('click', exportConfig);
+  $('btn-import-config').addEventListener('click', () => $('import-config-file').click());
+  $('import-config-file').addEventListener('change', handleImportFile);
 }
 
 function fillSettingsForm() {
@@ -98,6 +103,8 @@ function fillSettingsForm() {
 
 function openSettingsModal() {
   fillSettingsForm();
+  const msg = $('config-io-message');
+  if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
   $('settings-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
 }
@@ -105,6 +112,122 @@ function openSettingsModal() {
 function closeSettingsModal() {
   $('settings-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
+}
+
+// ===== CONFIG EXPORT / IMPORT =====
+
+const CONFIG_EXPORT_VERSION = 1;
+
+function exportConfig() {
+  // Ask for the file name before exporting
+  const defaultName = `catalog-service-config-${new Date().toISOString().slice(0, 10)}`;
+  let name = window.prompt('Nombre del archivo de configuración:', defaultName);
+  if (name === null) return; // cancelled
+  name = name.trim();
+  if (!name) name = defaultName;
+  if (!name.toLowerCase().endsWith('.json')) name += '.json';
+
+  const payload = {
+    app: 'adobe-catalog-service-panel',
+    version: CONFIG_EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: {
+      environments: safeParse(localStorage.getItem(LS_KEY), []),
+      websites: safeParse(localStorage.getItem(LS_WS_KEY), {}),
+      settings: safeParse(localStorage.getItem(LS_SETTINGS_KEY), DEFAULT_SETTINGS),
+    },
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showConfigIoMessage('success', `Configuración exportada como "${name}".`);
+}
+
+function handleImportFile(e) {
+  const file = e.target.files && e.target.files[0];
+  // Allow re-importing the same file later
+  e.target.value = '';
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      applyImportedConfig(parsed);
+    } catch (err) {
+      showConfigIoMessage('error', 'El archivo no es un JSON válido.');
+    }
+  };
+  reader.onerror = () => showConfigIoMessage('error', 'No se pudo leer el archivo.');
+  reader.readAsText(file);
+}
+
+function applyImportedConfig(parsed) {
+  // Accept either the wrapped format ({ data: {...} }) or a raw {environments,websites,settings}
+  const data = parsed && parsed.data ? parsed.data : parsed;
+
+  if (!data || typeof data !== 'object') {
+    showConfigIoMessage('error', 'El archivo no contiene una configuración válida.');
+    return;
+  }
+
+  const hasAny = ['environments', 'websites', 'settings'].some((k) => k in data);
+  if (!hasAny) {
+    showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
+    return;
+  }
+
+  if (!window.confirm('Importar esta configuración reemplazará tus entornos, websites/store views y ajustes actuales. ¿Continuar?')) {
+    return;
+  }
+
+  // Persist each section if present
+  if ('environments' in data && Array.isArray(data.environments)) {
+    localStorage.setItem(LS_KEY, JSON.stringify(data.environments));
+  }
+  if ('websites' in data && data.websites && typeof data.websites === 'object') {
+    localStorage.setItem(LS_WS_KEY, JSON.stringify(data.websites));
+  }
+  if ('settings' in data && data.settings && typeof data.settings === 'object') {
+    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(data.settings));
+  }
+
+  // Reload in-memory state from storage
+  loadSettings();
+  loadEnvironments();
+  loadWebsites();
+
+  // Refresh the whole UI to reflect the imported config
+  activeEnvironment = null;
+  selectedWebsiteCode = null;
+  renderEnvironments();
+  populateSidebarWebsites();
+  fillSettingsForm();
+
+  showConfigIoMessage('success', 'Configuración importada correctamente.');
+}
+
+function safeParse(raw, fallback) {
+  try {
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function showConfigIoMessage(type, msg) {
+  const el = $('config-io-message');
+  el.style.display = 'block';
+  el.className = 'settings-io-message ' + type;
+  el.textContent = msg;
 }
 
 // ===== LOCAL STORAGE =====

@@ -1616,6 +1616,33 @@ details.raw-json[open] .summary-chevron {
   padding: 16px 24px;
 }
 
+/* ===== SETTINGS IMPORT / EXPORT ===== */
+.settings-io-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-io-message {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.settings-io-message.success {
+  background: rgba(46, 203, 113, 0.1);
+  border: 1px solid rgba(46, 203, 113, 0.3);
+  color: var(--color-success);
+}
+
+.settings-io-message.error {
+  background: rgba(224, 82, 82, 0.1);
+  border: 1px solid rgba(224, 82, 82, 0.3);
+  color: var(--color-error);
+}
+
 /* ===== PAGINATION ===== */
 .pagination {
   display: flex;
