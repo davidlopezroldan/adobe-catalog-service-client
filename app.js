@@ -1471,12 +1471,12 @@ function buildCategoryNode(node) {
     </span>
     ${menuDot}
     <span class="cat-name">${escHtml(node.name || '—')}</span>
-    <span class="cat-id">#${escHtml(node.id)}</span>
-    ${urlPathHtml}
     <button class="cat-view-products" type="button" title="Ver productos" aria-label="Ver productos">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
     </button>
+    <span class="cat-id">#${escHtml(node.id)}</span>
     ${hiddenBadge}
+    ${urlPathHtml}
     ${hasChildren ? `<span class="cat-children-count">${node.children.length}</span>` : ''}
   `;
 

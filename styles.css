@@ -1461,7 +1461,6 @@ details.raw-json[open] .summary-chevron {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
   flex-shrink: 1;
 }
 
@@ -1478,17 +1477,15 @@ details.raw-json[open] .summary-chevron {
   border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity var(--transition), background var(--transition), border-color var(--transition);
-}
-
-.cat-row:hover .cat-view-products {
   opacity: 1;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 
+.cat-row:hover .cat-view-products,
 .cat-view-products:hover {
-  background: rgba(235, 93, 0, 0.1);
-  border-color: rgba(235, 93, 0, 0.3);
+  color: var(--color-warning);
+  background: rgba(245, 166, 35, 0.1);
+  border-color: rgba(245, 166, 35, 0.3);
 }
 
 /* ===== CATEGORY PRODUCTS TAB ===== */
