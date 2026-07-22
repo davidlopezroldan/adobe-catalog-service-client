@@ -1453,6 +1453,18 @@ details.raw-json[open] .summary-chevron {
   flex-shrink: 0;
 }
 
+.cat-url-path {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  flex-shrink: 1;
+}
+
 /* "Ver productos" icon-only link in category rows */
 .cat-view-products {
   display: inline-flex;

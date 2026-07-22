@@ -1269,6 +1269,7 @@ query Categories($ids: [String!]!) {
     name
     position
     path
+    urlPath
     roles
   }
 }
@@ -1460,6 +1461,10 @@ function buildCategoryNode(node) {
     ? ''
     : '<span class="cat-hidden-badge" title="No tiene el rol show_in_menu">oculta</span>';
 
+  const urlPathHtml = node.urlPath
+    ? `<span class="cat-url-path" title="${escHtml(node.urlPath)}">${escHtml(node.urlPath)}</span>`
+    : '';
+
   row.innerHTML = `
     <span class="cat-toggle ${hasChildren ? '' : 'cat-toggle-empty'}">
       ${hasChildren ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>' : ''}
@@ -1467,6 +1472,7 @@ function buildCategoryNode(node) {
     ${menuDot}
     <span class="cat-name">${escHtml(node.name || '—')}</span>
     <span class="cat-id">#${escHtml(node.id)}</span>
+    ${urlPathHtml}
     <button class="cat-view-products" type="button" title="Ver productos" aria-label="Ver productos">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
     </button>
