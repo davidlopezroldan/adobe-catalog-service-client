@@ -850,6 +850,12 @@ function validateConfig() {
 
 // ===== GRAPHQL FETCH =====
 
+// Formats the GraphQL payload sent to the API for display purposes
+function formatSentQuery(query, variables) {
+  const vars = JSON.stringify(variables, null, 2);
+  return `# Query\n${query}\n\n# Variables\n${vars}`;
+}
+
 async function graphqlFetch(query, variables = {}) {
   const endpoint = getEndpoint();
   const headers = buildHeaders();
@@ -1027,6 +1033,8 @@ async function runProductSearch(page = 1) {
   $('products-pagination').style.display = 'none';
   $('products-raw-pre').textContent = '';
   $('products-raw-container').style.display = 'none';
+  $('products-query-pre').textContent = '';
+  $('products-query-container').style.display = 'none';
   $('products-error').style.display = 'none';
   $('products-loading').classList.remove('visible');
   $('products-initial-state').style.display = 'none';
@@ -1047,12 +1055,10 @@ async function runProductSearch(page = 1) {
   $('products-loading').classList.add('visible');
   $('btn-product-search').disabled = true;
 
+  const variables = { phrase, pageSize: getResultLimit(), currentPage: page };
+
   try {
-    const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, {
-      phrase,
-      pageSize: getResultLimit(),
-      currentPage: page,
-    });
+    const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, variables);
 
     $('products-loading').classList.remove('visible');
     $('btn-product-search').disabled = false;
@@ -1060,6 +1066,10 @@ async function runProductSearch(page = 1) {
     // Show raw JSON
     $('products-raw-pre').textContent = JSON.stringify(data, null, 2);
     $('products-raw-container').style.display = 'block';
+
+    // Show sent query
+    $('products-query-pre').textContent = formatSentQuery(PRODUCT_SEARCH_QUERY, variables);
+    $('products-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
       const msgs = data.errors.map((e) => e.message).join('\n');
@@ -1270,6 +1280,7 @@ query Categories($ids: [String!]!) {
     position
     path
     urlPath
+    level
     roles
   }
 }
@@ -1298,6 +1309,8 @@ async function runCategorySearch() {
   $('categories-tree').innerHTML = '';
   $('categories-raw-pre').textContent = '';
   $('categories-raw-container').style.display = 'none';
+  $('categories-query-pre').textContent = '';
+  $('categories-query-container').style.display = 'none';
   $('categories-error').style.display = 'none';
   $('categories-toolbar').style.display = 'none';
   $('categories-loading').classList.remove('visible');
@@ -1320,8 +1333,10 @@ async function runCategorySearch() {
   $('categories-loading').classList.add('visible');
   $('btn-category-search').disabled = true;
 
+  const variables = { ids: [rootId] };
+
   try {
-    const data = await graphqlFetch(CATEGORIES_QUERY, { ids: [rootId] });
+    const data = await graphqlFetch(CATEGORIES_QUERY, variables);
 
     $('categories-loading').classList.remove('visible');
     $('btn-category-search').disabled = false;
@@ -1329,6 +1344,10 @@ async function runCategorySearch() {
     // Raw JSON
     $('categories-raw-pre').textContent = JSON.stringify(data, null, 2);
     $('categories-raw-container').style.display = 'block';
+
+    // Sent query
+    $('categories-query-pre').textContent = formatSentQuery(CATEGORIES_QUERY, variables);
+    $('categories-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
       const msgs = data.errors.map((e) => e.message).join('\n');
@@ -1597,6 +1616,8 @@ async function runCategoryProductsSearch(categoryId, categoryName, page = 1) {
   $('cat-products-pagination').style.display = 'none';
   $('cat-products-raw-pre').textContent = '';
   $('cat-products-raw-container').style.display = 'none';
+  $('cat-products-query-pre').textContent = '';
+  $('cat-products-query-container').style.display = 'none';
   $('cat-products-error').style.display = 'none';
   $('cat-products-loading').classList.remove('visible');
   $('cat-products-initial-state').style.display = 'none';
@@ -1638,18 +1659,24 @@ async function runCategoryProductsSearch(categoryId, categoryName, page = 1) {
   $('cat-products-loading').classList.add('visible');
   $('btn-cat-products-search').disabled = true;
 
+  const variables = {
+    categoryId: String(categoryId),
+    pageSize: getResultLimit(),
+    currentPage: page,
+  };
+
   try {
-    const data = await graphqlFetch(CATEGORY_PRODUCTS_QUERY, {
-      categoryId: String(categoryId),
-      pageSize: getResultLimit(),
-      currentPage: page,
-    });
+    const data = await graphqlFetch(CATEGORY_PRODUCTS_QUERY, variables);
 
     $('cat-products-loading').classList.remove('visible');
     $('btn-cat-products-search').disabled = false;
 
     $('cat-products-raw-pre').textContent = JSON.stringify(data, null, 2);
     $('cat-products-raw-container').style.display = 'block';
+
+    // Sent query
+    $('cat-products-query-pre').textContent = formatSentQuery(CATEGORY_PRODUCTS_QUERY, variables);
+    $('cat-products-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
       const msgs = data.errors.map((e) => e.message).join('\n');
