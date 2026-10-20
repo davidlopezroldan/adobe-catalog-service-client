@@ -72,6 +72,17 @@ function toggleFavoriteAttribute(name) {
   saveFavoriteAttributes();
 }
 
+// Renders an attribute value; http(s) URLs become links opened in a new tab
+function renderAttrValue(value) {
+  const text = value == null ? '' : String(value).trim();
+  if (!text) return '—';
+  if (/^https?:\/\/\S+$/i.test(text)) {
+    const safe = escHtml(text);
+    return `<a class="attr-link" href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+  }
+  return escHtml(String(value));
+}
+
 const hasAttrValue = (a) => a.value != null && String(a.value).trim() !== '';
 
 // Favorites first; inside each group attributes with a value come before empty ones.
@@ -1464,7 +1475,7 @@ function renderProductCards(items, containerId = 'products-results') {
 
     // Open product modal on card click (but not on the attrs toggle)
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.product-attrs-toggle, .attr-fav-btn')) return;
+      if (e.target.closest('.product-attrs-toggle, .attr-fav-btn, .attr-link')) return;
       openProductModal(pv);
     });
 
@@ -1501,7 +1512,7 @@ function buildAttrsHtml(attributes) {
       <tr>
         <td title="${escHtml(attr.name || '')}">${buildFavButton(attr)}${escHtml(attr.label || attr.name || '—')}</td>
         <td>
-          <div>${escHtml(attr.value || '—')}</div>
+          <div>${renderAttrValue(attr.value)}</div>
           ${roles ? `<div style="margin-top:3px">${roles}</div>` : ''}
         </td>
       </tr>
@@ -2198,7 +2209,7 @@ function buildModalAttrsInner(attrs) {
     return `
       <tr>
         <td class="pmd-attr-name" title="${escHtml(attr.name || '')}">${buildFavButton(attr)}${escHtml(attr.label || attr.name || '—')}</td>
-        <td class="pmd-attr-value">${escHtml(attr.value || '—')}</td>
+        <td class="pmd-attr-value">${renderAttrValue(attr.value)}</td>
         <td class="pmd-attr-roles">${roles}</td>
       </tr>
     `;

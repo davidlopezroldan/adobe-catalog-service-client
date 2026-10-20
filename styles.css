@@ -960,6 +960,16 @@ details.raw-json[open] .summary-chevron {
   opacity: 1;
 }
 
+.attr-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.attr-link:hover {
+  text-decoration: none;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .sidebar {
