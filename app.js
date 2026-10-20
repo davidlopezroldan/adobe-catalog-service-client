@@ -72,11 +72,18 @@ function toggleFavoriteAttribute(name) {
   saveFavoriteAttributes();
 }
 
-// Favorites first, keeping the original order inside each group
+const hasAttrValue = (a) => a.value != null && String(a.value).trim() !== '';
+
+// Favorites first; inside each group attributes with a value come before empty ones.
+// The original order is kept within every sub-group.
 function sortAttributesByFavorite(attrs) {
-  const favs = attrs.filter((a) => favoriteAttributes.has(a.name));
-  const rest = attrs.filter((a) => !favoriteAttributes.has(a.name));
-  return [...favs, ...rest];
+  const isFav = (a) => favoriteAttributes.has(a.name);
+  return [
+    ...attrs.filter((a) => isFav(a) && hasAttrValue(a)),
+    ...attrs.filter((a) => isFav(a) && !hasAttrValue(a)),
+    ...attrs.filter((a) => !isFav(a) && hasAttrValue(a)),
+    ...attrs.filter((a) => !isFav(a) && !hasAttrValue(a)),
+  ];
 }
 
 function buildFavButton(attr) {
