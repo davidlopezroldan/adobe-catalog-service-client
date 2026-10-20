@@ -386,7 +386,34 @@ function saveWebsites() {
 
 // ===== ENVIRONMENT MANAGEMENT =====
 
+// Internal id of the environment being edited (null when adding a new one)
+let editingEnvId = null;
+
+function resetEnvForm() {
+  editingEnvId = null;
+  $('new-env-label').value = '';
+  $('new-env-id').value = '';
+  $('new-env-type').value = 'staging';
+  $('env-add-form').classList.remove('visible');
+  $('btn-add-env').textContent = '+ Añadir entorno';
+  $('btn-save-env').textContent = 'Guardar entorno';
+}
+
+function startEditEnvironment(env) {
+  editingEnvId = env.id;
+  $('new-env-label').value = env.label;
+  $('new-env-id').value = env.environmentId;
+  $('new-env-type').value = env.type === 'production' ? 'production' : 'staging';
+  $('env-add-form').classList.add('visible');
+  $('btn-add-env').textContent = '✕ Cancelar';
+  $('btn-save-env').textContent = 'Guardar cambios';
+  $('new-env-label').focus();
+}
+
 function renderEnvironments() {
+  // Alphabetical by label (in place, so the delete index below stays consistent)
+  environments.sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+
   const list = $('env-list');
   list.innerHTML = '';
 
@@ -406,21 +433,30 @@ function renderEnvironments() {
     const item = document.createElement('div');
     item.className = 'env-item' + (activeEnvironment && activeEnvironment.id === env.id ? ' active' : '');
     item.innerHTML = `
-      <div class="env-item-label" title="${env.label}">${env.label}</div>
-      <div style="display:flex;align-items:center;gap:5px">
-        ${typeBadge}
-        <div class="env-item-id" title="${env.environmentId}">${env.environmentId}</div>
+      <div class="env-item-main">
+        <div class="env-item-meta">
+          ${typeBadge}
+          <div class="env-item-label" title="${escHtml(env.label)}">${escHtml(env.label)}</div>
+        </div>
+        <div class="env-item-id" title="${escHtml(env.environmentId)}">${escHtml(env.environmentId)}</div>
       </div>
+      <button class="env-item-edit" title="Editar entorno">&#x270E;</button>
       <button class="env-item-delete" title="Eliminar entorno" data-index="${index}">&#x2715;</button>
     `;
 
     // Click to select
     item.addEventListener('click', (e) => {
-      if (e.target.closest('.env-item-delete')) return;
+      if (e.target.closest('.env-item-delete, .env-item-edit')) return;
       activeEnvironment = env;
       setLastUsed('environmentId', env.id);
       renderEnvironments();
       updateActiveEnvDisplay();
+    });
+
+    // Edit button
+    item.querySelector('.env-item-edit').addEventListener('click', (e) => {
+      e.stopPropagation();
+      startEditEnvironment(env);
     });
 
     // Delete button
@@ -429,6 +465,7 @@ function renderEnvironments() {
       if (activeEnvironment && activeEnvironment.id === env.id) {
         activeEnvironment = null;
       }
+      if (editingEnvId === env.id) resetEnvForm();
       environments.splice(index, 1);
       saveEnvironments();
       renderEnvironments();
@@ -464,8 +501,8 @@ function updateActiveEnvDisplay() {
 
     display.innerHTML = `
       <div class="label">Entorno activo</div>
-      <div style="display:flex;align-items:center;gap:6px;margin:3px 0">${typeBadge}<div class="name" style="margin:0">${activeEnvironment.label}</div></div>
-      <div class="eid">${activeEnvironment.environmentId}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0">${typeBadge}<div class="name" style="margin:0">${escHtml(activeEnvironment.label)}</div></div>
+      <div class="eid">${escHtml(activeEnvironment.environmentId)}</div>
       <div style="font-size:10px;color:var(--color-text-muted);margin-top:4px;font-family:var(--font-mono);word-break:break-all">${url}</div>
     `;
     display.style.display = 'block';
@@ -496,12 +533,12 @@ function initEnvironmentManager() {
   // Toggle add form
   $('btn-add-env').addEventListener('click', () => {
     const form = $('env-add-form');
-    form.classList.toggle('visible');
     if (form.classList.contains('visible')) {
+      resetEnvForm(); // cancel (also discards an edit in progress)
+    } else {
+      form.classList.add('visible');
       $('new-env-label').focus();
       $('btn-add-env').textContent = '✕ Cancelar';
-    } else {
-      $('btn-add-env').textContent = '+ Añadir entorno';
     }
   });
 
@@ -520,6 +557,20 @@ function initEnvironmentManager() {
       return;
     }
 
+    if (editingEnvId) {
+      // Update in place so activeEnvironment (same object) stays selected
+      const env = environments.find((e) => e.id === editingEnvId);
+      if (env) {
+        env.label = label;
+        env.environmentId = envId;
+        env.type = type;
+        saveEnvironments();
+      }
+      resetEnvForm();
+      renderEnvironments();
+      return;
+    }
+
     const newEnv = {
       id: Date.now().toString(),
       label,
@@ -531,12 +582,7 @@ function initEnvironmentManager() {
     saveEnvironments();
     activeEnvironment = newEnv;
 
-    // Reset form
-    $('new-env-label').value = '';
-    $('new-env-id').value = '';
-    $('new-env-type').value = 'staging';
-    $('env-add-form').classList.remove('visible');
-    $('btn-add-env').textContent = '+ Añadir entorno';
+    resetEnvForm();
 
     renderEnvironments();
   });
@@ -664,6 +710,7 @@ function initWebsiteManager() {
 
   // Add website
   $('btn-save-ws').addEventListener('click', addWebsite);
+  $('btn-cancel-ws-edit').addEventListener('click', resetWsForm);
   $('new-ws-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') addWebsite(); });
   $('new-ws-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') addWebsite(); });
 
@@ -679,6 +726,7 @@ function initWebsiteManager() {
 
 function openWsModal() {
   selectedWebsiteCode = null;
+  resetWsForm();
   renderWsManager();
   $('ws-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
@@ -689,6 +737,28 @@ function closeWsModal() {
   document.body.style.overflow = '';
   // Refresh sidebar selectors in case something changed
   populateSidebarWebsites();
+}
+
+// Website code being edited (null when adding a new website). The code is the key, so only the label is editable.
+let editingWsCode = null;
+
+function resetWsForm() {
+  editingWsCode = null;
+  $('new-ws-code').value = '';
+  $('new-ws-code').disabled = false;
+  $('new-ws-label').value = '';
+  $('btn-save-ws').textContent = 'Añadir website';
+  $('btn-cancel-ws-edit').style.display = 'none';
+}
+
+function startEditWebsite(code) {
+  editingWsCode = code;
+  $('new-ws-code').value = code;
+  $('new-ws-code').disabled = true;
+  $('new-ws-label').value = websites[code].label || '';
+  $('btn-save-ws').textContent = 'Guardar label';
+  $('btn-cancel-ws-edit').style.display = 'block';
+  $('new-ws-label').focus();
 }
 
 function renderWsManager() {
@@ -720,17 +790,24 @@ function renderWebsiteList() {
         ${ws.label ? `<div class="ws-item-label">${escHtml(ws.label)}</div>` : ''}
       </div>
       <span class="ws-item-sv-count" title="${ws.storeViews.length} store view(s)">${ws.storeViews.length} SV</span>
+      <button class="env-item-edit ws-edit-btn" title="Editar label">&#x270E;</button>
       <button class="env-item-delete ws-delete-btn" title="Eliminar website" data-code="${escHtml(code)}">&#x2715;</button>
     `;
 
     item.addEventListener('click', (e) => {
-      if (e.target.closest('.ws-delete-btn')) return;
+      if (e.target.closest('.ws-delete-btn, .ws-edit-btn')) return;
       selectedWebsiteCode = code;
       renderWsManager();
     });
 
+    item.querySelector('.ws-edit-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      startEditWebsite(code);
+    });
+
     item.querySelector('.ws-delete-btn').addEventListener('click', (e) => {
       e.stopPropagation();
+      if (editingWsCode === code) resetWsForm();
       delete websites[code];
       saveWebsites();
       if (selectedWebsiteCode === code) selectedWebsiteCode = null;
@@ -797,6 +874,17 @@ function addWebsite() {
   const labelInput = $('new-ws-label');
   const code = codeInput.value.trim();
   const label = labelInput.value.trim();
+
+  if (editingWsCode) {
+    if (websites[editingWsCode]) {
+      websites[editingWsCode].label = label;
+      saveWebsites();
+    }
+    resetWsForm();
+    renderWsManager();
+    populateSidebarWebsites(); // refresh the sidebar selector with the new label
+    return;
+  }
 
   if (!code) {
     showFieldError(codeInput, 'El código es requerido');

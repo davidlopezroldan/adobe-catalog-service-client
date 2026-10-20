@@ -278,8 +278,23 @@ input::placeholder {
   background: rgba(235, 93, 0, 0.1);
 }
 
-.env-item-label {
+.env-item-main {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.env-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.env-item-label {
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text);
@@ -295,7 +310,7 @@ input::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100px;
+  min-width: 0;
 }
 
 .env-item-delete {
@@ -312,6 +327,21 @@ input::placeholder {
   flex-shrink: 0;
 }
 .env-item-delete:hover { color: var(--color-error); }
+
+.env-item-edit {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  transition: color var(--transition);
+  flex-shrink: 0;
+}
+.env-item-edit:hover { color: var(--color-accent); }
 
 /* ===== ENVIRONMENT TYPE BADGE ===== */
 .env-type-badge {
