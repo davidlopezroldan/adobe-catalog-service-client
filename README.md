@@ -51,3 +51,32 @@ index.html    Estructura de la interfaz
 styles.css    Estilos
 app.js        Lógica: estado, llamadas GraphQL y renderizado
 ```
+
+## Changelog
+
+### 2026-10-21
+- Edit and sort environments, edit website labels, two-line environment items
+- Add favorite attributes pinned first in attribute lists
+- Show product type badge and associated simple products in modal
+- Add Products by SKU tab using the products endpoint
+
+### 2026-07-29
+- Show sent GraphQL query, fix query format, add level field to categories
+
+### 2026-07-22
+- Reorder category node, always show list button with yellow hover
+- Show urlPath in category tree nodes
+
+### 2026-06-30
+- Update README with new features
+- Sync active tab with URL hash
+- Persist last used selections in localStorage
+- Export/import configuration via JSON file
+- Add pagination to product search tabs
+- Implement "Category Products" tab
+- Add README with demo link
+- Categories tab with collapsible tree and menu-visibility indicators
+
+### 2026-06-26
+- Product detail modal on card click
+- Initial commit — Adobe Catalog Service panel
