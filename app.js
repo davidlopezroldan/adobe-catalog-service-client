@@ -14,6 +14,7 @@ const LS_KEY = 'catalogService.environments';
 const LS_WS_KEY = 'catalogService.websites';
 const LS_SETTINGS_KEY = 'catalogService.settings';
 const LS_LAST_USED_KEY = 'catalogService.lastUsed';
+const LS_FAV_ATTRS_KEY = 'catalogService.favoriteAttributes';
 
 // Default application settings
 const DEFAULT_SETTINGS = {
@@ -46,6 +47,69 @@ let lastUsed = { ...DEFAULT_LAST_USED };
 
 // ===== DOM REFS =====
 const $ = (id) => document.getElementById(id);
+
+// ===== FAVORITE ATTRIBUTES =====
+
+// Attribute names (attr.name) pinned to the top of every attribute list
+let favoriteAttributes = new Set();
+
+function loadFavoriteAttributes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_FAV_ATTRS_KEY));
+    favoriteAttributes = new Set(Array.isArray(raw) ? raw.filter((n) => typeof n === 'string') : []);
+  } catch {
+    favoriteAttributes = new Set();
+  }
+}
+
+function saveFavoriteAttributes() {
+  localStorage.setItem(LS_FAV_ATTRS_KEY, JSON.stringify([...favoriteAttributes]));
+}
+
+function toggleFavoriteAttribute(name) {
+  if (favoriteAttributes.has(name)) favoriteAttributes.delete(name);
+  else favoriteAttributes.add(name);
+  saveFavoriteAttributes();
+}
+
+// Favorites first, keeping the original order inside each group
+function sortAttributesByFavorite(attrs) {
+  const favs = attrs.filter((a) => favoriteAttributes.has(a.name));
+  const rest = attrs.filter((a) => !favoriteAttributes.has(a.name));
+  return [...favs, ...rest];
+}
+
+function buildFavButton(attr) {
+  const isFav = favoriteAttributes.has(attr.name);
+  const title = isFav ? 'Quitar de favoritos' : 'Marcar como favorito';
+  return `<button type="button" class="attr-fav-btn${isFav ? ' active' : ''}" data-attr="${escHtml(attr.name || '')}" aria-pressed="${isFav}" title="${title}">${isFav ? '&#9733;' : '&#9734;'}</button>`;
+}
+
+// Attribute lists rendered inside product cards, to re-render them on favorite changes
+const cardAttrsData = new WeakMap(); // .attrs-body element -> attributes[]
+let currentModalPv = null;
+
+function refreshAttributeViews() {
+  document.querySelectorAll('.attrs-body').forEach((el) => {
+    const attrs = cardAttrsData.get(el);
+    if (attrs) el.innerHTML = buildAttrsHtml(attrs);
+  });
+  const modalAttrs = $('pmd-attrs-section');
+  if (modalAttrs && currentModalPv) {
+    modalAttrs.innerHTML = buildModalAttrsInner(currentModalPv.attributes || []);
+  }
+}
+
+function initFavoriteAttributes() {
+  loadFavoriteAttributes();
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.attr-fav-btn');
+    if (!btn) return;
+    e.stopPropagation(); // do not open the product modal from a card
+    toggleFavoriteAttribute(btn.dataset.attr);
+    refreshAttributeViews();
+  });
+}
 
 // ===== LAST USED LOCAL STORAGE =====
 
@@ -171,6 +235,7 @@ function exportConfig() {
       websites: safeParse(localStorage.getItem(LS_WS_KEY), {}),
       settings: safeParse(localStorage.getItem(LS_SETTINGS_KEY), DEFAULT_SETTINGS),
       lastUsed: safeParse(localStorage.getItem(LS_LAST_USED_KEY), DEFAULT_LAST_USED),
+      favoriteAttributes: safeParse(localStorage.getItem(LS_FAV_ATTRS_KEY), []),
     },
   };
 
@@ -215,7 +280,7 @@ function applyImportedConfig(parsed) {
     return;
   }
 
-  const hasAny = ['environments', 'websites', 'settings', 'lastUsed'].some((k) => k in data);
+  const hasAny = ['environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes'].some((k) => k in data);
   if (!hasAny) {
     showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
     return;
@@ -238,10 +303,15 @@ function applyImportedConfig(parsed) {
   if ('lastUsed' in data && data.lastUsed && typeof data.lastUsed === 'object') {
     localStorage.setItem(LS_LAST_USED_KEY, JSON.stringify(data.lastUsed));
   }
+  if ('favoriteAttributes' in data && Array.isArray(data.favoriteAttributes)) {
+    localStorage.setItem(LS_FAV_ATTRS_KEY, JSON.stringify(data.favoriteAttributes));
+  }
 
   // Reload in-memory state from storage
   loadSettings();
   loadLastUsed();
+  loadFavoriteAttributes();
+  refreshAttributeViews();
   loadEnvironments();
   loadWebsites();
 
@@ -1299,13 +1369,14 @@ function renderProductCards(items, containerId = 'products-results') {
 
     // Open product modal on card click (but not on the attrs toggle)
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.product-attrs-toggle')) return;
+      if (e.target.closest('.product-attrs-toggle, .attr-fav-btn')) return;
       openProductModal(pv);
     });
 
     // Toggle attributes
     const toggleBtn = card.querySelector('.product-attrs-toggle');
     const attrsBody = card.querySelector('.attrs-body');
+    cardAttrsData.set(attrsBody, pv.attributes || []);
     const chevron = card.querySelector('.attrs-chevron');
 
     toggleBtn.addEventListener('click', (e) => {
@@ -1326,14 +1397,14 @@ function buildAttrsHtml(attributes) {
     return '<p style="font-size:12px;color:var(--color-text-muted);padding:8px 0;">Sin atributos</p>';
   }
 
-  const rows = attributes.map((attr) => {
+  const rows = sortAttributesByFavorite(attributes).map((attr) => {
     const roles = Array.isArray(attr.roles)
       ? attr.roles.map((r) => `<span class="attrs-role">${escHtml(r)}</span>`).join(' ')
       : escHtml(attr.roles || '');
 
     return `
       <tr>
-        <td title="${escHtml(attr.name || '')}">${escHtml(attr.label || attr.name || '—')}</td>
+        <td title="${escHtml(attr.name || '')}">${buildFavButton(attr)}${escHtml(attr.label || attr.name || '—')}</td>
         <td>
           <div>${escHtml(attr.value || '—')}</div>
           ${roles ? `<div style="margin-top:3px">${roles}</div>` : ''}
@@ -2003,6 +2074,7 @@ function initProductModal() {
 }
 
 function openProductModal(pv) {
+  currentModalPv = pv;
   $('product-modal-title').textContent = pv.name || pv.sku || 'Detalle del producto';
   $('product-modal-content').innerHTML = buildProductModalContent(pv);
   $('product-modal-overlay').style.display = 'flex';
@@ -2015,47 +2087,48 @@ function openProductModal(pv) {
 }
 
 function closeProductModal() {
+  currentModalPv = null;
   variantsRequestSku = null;
   $('product-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
 }
 
-function buildProductModalContent(pv) {
-  const attrs = pv.attributes || [];
+function buildModalAttrsInner(attrs) {
+  if (attrs.length === 0) return '<p class="pmd-empty">Sin atributos disponibles.</p>';
 
-  // Group attributes by role for a richer display
-  const attrRows = attrs.map((attr) => {
+  const attrRows = sortAttributesByFavorite(attrs).map((attr) => {
     const roles = Array.isArray(attr.roles)
       ? attr.roles.map((r) => `<span class="attrs-role">${escHtml(r)}</span>`).join(' ')
       : (attr.roles ? `<span class="attrs-role">${escHtml(attr.roles)}</span>` : '');
     return `
       <tr>
-        <td class="pmd-attr-name" title="${escHtml(attr.name || '')}">${escHtml(attr.label || attr.name || '—')}</td>
+        <td class="pmd-attr-name" title="${escHtml(attr.name || '')}">${buildFavButton(attr)}${escHtml(attr.label || attr.name || '—')}</td>
         <td class="pmd-attr-value">${escHtml(attr.value || '—')}</td>
         <td class="pmd-attr-roles">${roles}</td>
       </tr>
     `;
   }).join('');
 
-  const attrsSection = attrs.length > 0
-    ? `
-      <div class="pmd-section">
-        <div class="pmd-section-title">Atributos <span class="tab-pill">${attrs.length}</span></div>
-        <div class="pmd-table-wrap">
-          <table class="pmd-attrs-table">
-            <thead>
-              <tr>
-                <th>Label</th>
-                <th>Valor</th>
-                <th>Roles</th>
-              </tr>
-            </thead>
-            <tbody>${attrRows}</tbody>
-          </table>
-        </div>
-      </div>
-    `
-    : `<div class="pmd-section"><p class="pmd-empty">Sin atributos disponibles.</p></div>`;
+  return `
+    <div class="pmd-section-title">Atributos <span class="tab-pill">${attrs.length}</span></div>
+    <div class="pmd-table-wrap">
+      <table class="pmd-attrs-table">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Valor</th>
+            <th>Roles</th>
+          </tr>
+        </thead>
+        <tbody>${attrRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildProductModalContent(pv) {
+  const attrs = pv.attributes || [];
+  const attrsSection = `<div class="pmd-section" id="pmd-attrs-section">${buildModalAttrsInner(attrs)}</div>`;
 
   const variantsSection = pv.__typename === 'ComplexProductView'
     ? `
@@ -2086,6 +2159,7 @@ function buildProductModalContent(pv) {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadLastUsed();
+  initFavoriteAttributes();
   loadWebsites();
   initSettings();
   initEnvironmentManager();
