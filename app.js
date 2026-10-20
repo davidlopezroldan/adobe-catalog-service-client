@@ -26,6 +26,7 @@ const DEFAULT_LAST_USED = {
   website: null,         // website code
   storeView: null,       // store view code
   productPhrase: '',     // Products tab phrase
+  productSkus: '',       // Products by SKU tab SKUs
   categoryProductId: '', // Category Products tab category id
 };
 
@@ -256,6 +257,7 @@ function applyImportedConfig(parsed) {
 
   // Restore last-used input values
   $('product-phrase').value = lastUsed.productPhrase || '';
+  $('psku-skus').value = lastUsed.productSkus || '';
   $('cat-products-id').value = lastUsed.categoryProductId || '';
 
   showConfigIoMessage('success', 'Configuración importada correctamente.');
@@ -1096,6 +1098,130 @@ async function runProductSearch(page = 1) {
   }
 }
 
+// ===== PRODUCTS BY SKU TAB (products endpoint) =====
+
+const PRODUCTS_BY_SKU_QUERY = `query Products($skus: [String]!) {
+  products(skus: $skus) {
+    sku
+    name
+    attributes {
+      label
+      name
+      roles
+      value
+    }
+  }
+}`;
+
+function initProductsBySkuTab() {
+  const searchBtn = $('btn-psku-search');
+  const skusInput = $('psku-skus');
+
+  if (lastUsed.productSkus) {
+    skusInput.value = lastUsed.productSkus;
+  }
+
+  searchBtn.addEventListener('click', runProductsBySku);
+
+  skusInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runProductsBySku();
+  });
+}
+
+function showProductsBySkuError(msg) {
+  const el = $('psku-error');
+  el.style.display = 'flex';
+  el.querySelector('.error-text').textContent = msg;
+}
+
+async function runProductsBySku() {
+  const raw = $('psku-skus').value.trim();
+  setLastUsed('productSkus', raw);
+  const skus = [...new Set(raw.split(/[\s,;]+/).filter(Boolean))];
+
+  // Clear previous results
+  $('psku-results').innerHTML = '';
+  $('psku-results-summary').innerHTML = '';
+  $('psku-raw-pre').textContent = '';
+  $('psku-raw-container').style.display = 'none';
+  $('psku-query-pre').textContent = '';
+  $('psku-query-container').style.display = 'none';
+  $('psku-error').style.display = 'none';
+  $('psku-loading').classList.remove('visible');
+  $('psku-initial-state').style.display = 'none';
+
+  const configErrors = validateConfig();
+  if (configErrors.length > 0) {
+    showProductsBySkuError(configErrors.map((e) => `• ${e}`).join('\n'));
+    return;
+  }
+
+  if (skus.length === 0) {
+    showProductsBySkuError('Introduce al menos un SKU en el campo "SKUs".');
+    return;
+  }
+
+  $('psku-loading').classList.add('visible');
+  $('btn-psku-search').disabled = true;
+
+  const variables = { skus };
+
+  try {
+    const data = await graphqlFetch(PRODUCTS_BY_SKU_QUERY, variables);
+
+    $('psku-loading').classList.remove('visible');
+    $('btn-psku-search').disabled = false;
+
+    $('psku-raw-pre').textContent = JSON.stringify(data, null, 2);
+    $('psku-raw-container').style.display = 'block';
+
+    $('psku-query-pre').textContent = formatSentQuery(PRODUCTS_BY_SKU_QUERY, variables);
+    $('psku-query-container').style.display = 'block';
+
+    if (data.errors && data.errors.length > 0) {
+      showProductsBySkuError('Error GraphQL:\n' + data.errors.map((e) => e.message).join('\n'));
+      return;
+    }
+
+    const products = data?.data?.products;
+    if (!products) {
+      showProductsBySkuError('La respuesta no contiene datos de products.');
+      return;
+    }
+
+    renderProductsBySku(products.filter(Boolean), skus);
+  } catch (err) {
+    $('psku-loading').classList.remove('visible');
+    $('btn-psku-search').disabled = false;
+    showProductsBySkuError('Error de red o del servidor:\n' + err.message);
+  }
+}
+
+function renderProductsBySku(products, requestedSkus) {
+  const summary = $('psku-results-summary');
+
+  if (products.length === 0) {
+    summary.innerHTML = '';
+    $('psku-results').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">&#x1F50D;</div>
+        <p>No se encontraron productos para los SKUs indicados.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const found = new Set(products.map((p) => (p.sku || '').toLowerCase()));
+  const missing = requestedSkus.filter((s) => !found.has(s.toLowerCase()));
+
+  summary.innerHTML = `
+    <div class="results-count"><strong>${products.length}</strong> producto${products.length !== 1 ? 's' : ''} de ${requestedSkus.length} SKU${requestedSkus.length !== 1 ? 's' : ''} solicitado${requestedSkus.length !== 1 ? 's' : ''}${
+      missing.length ? ` · no encontrados: ${escHtml(missing.join(', '))}` : ''
+    }</div>
+  `;
+  renderProductCards(products.map((productView) => ({ productView })), 'psku-results');
+}
+
 function showProductError(msg) {
   const el = $('products-error');
   el.style.display = 'flex';
@@ -1134,8 +1260,8 @@ function renderProducts(result) {
   renderFacets(facets);
 }
 
-function renderProductCards(items) {
-  const container = $('products-results');
+function renderProductCards(items, containerId = 'products-results') {
+  const container = $(containerId);
   const grid = document.createElement('div');
   grid.className = 'product-grid';
 
@@ -1852,6 +1978,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebsiteManager();
   initTabs();
   initProductsTab();
+  initProductsBySkuTab();
   initCategoriesTab();
   initCategoryProductsTab();
   initProductModal();
