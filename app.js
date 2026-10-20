@@ -978,6 +978,7 @@ query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int) {
     }
     items {
       productView {
+        __typename
         sku
         name
         attributes {
@@ -1102,6 +1103,7 @@ async function runProductSearch(page = 1) {
 
 const PRODUCTS_BY_SKU_QUERY = `query Products($skus: [String]!) {
   products(skus: $skus) {
+    __typename
     sku
     name
     attributes {
@@ -1279,7 +1281,7 @@ function renderProductCards(items, containerId = 'products-results') {
       <div class="product-card-header">
         <div class="product-card-info">
           <div class="product-name">${escHtml(pv.name || '—')}</div>
-          <div style="margin-top:5px"><span class="product-sku">${escHtml(pv.sku || '—')}</span></div>
+          <div style="margin-top:5px"><span class="product-sku">${escHtml(pv.sku || '—')}</span> ${buildProductTypeBadge(pv)}</div>
         </div>
         <span class="product-card-open-hint">Ver detalle ›</span>
       </div>
@@ -1684,6 +1686,7 @@ query CategoryProducts($categoryId: String!, $pageSize: Int, $currentPage: Int) 
     }
     items {
       productView {
+        __typename
         sku
         name
       }
@@ -1880,7 +1883,7 @@ function renderCategoryProducts(result) {
       <div class="cat-product-main">
         <span class="cat-product-name">${escHtml(pv.name || '—')}</span>
       </div>
-      <span class="product-sku">${escHtml(pv.sku || '—')}</span>
+      <span>${buildProductTypeBadge(pv)} <span class="product-sku">${escHtml(pv.sku || '—')}</span></span>
     `;
     // Reuse the existing product detail modal
     row.addEventListener('click', () => openProductModal(pv));
@@ -1888,6 +1891,101 @@ function renderCategoryProducts(result) {
   });
 
   container.appendChild(list);
+}
+
+// ===== PRODUCT TYPE & VARIANTS =====
+
+const PRODUCT_ASSOCIATED_QUERY = `query Products($skus: [String]!) {
+  products(skus: $skus) {
+    ... on ComplexProductView {
+      name
+      options {
+        values {
+          ... on ProductViewOptionValueProduct {
+            product {
+              sku
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+// SKU of the complex product whose associated products the modal is showing (ignores stale responses)
+let variantsRequestSku = null;
+
+function getProductTypeLabel(pv) {
+  if (pv.__typename === 'SimpleProductView') return 'Simple';
+  if (pv.__typename === 'ComplexProductView') return 'Complex';
+  return pv.__typename || '';
+}
+
+function buildProductTypeBadge(pv) {
+  const label = getProductTypeLabel(pv);
+  if (!label) return '';
+  const cls = pv.__typename === 'ComplexProductView' ? 'tag-complex' : 'tag-simple';
+  return `<span class="tag ${cls}">${escHtml(label)}</span>`;
+}
+
+async function loadAssociatedProducts(sku) {
+  variantsRequestSku = sku;
+  const box = $('pmd-variants-body');
+  const variables = { skus: [sku] };
+  const queryDetails = `
+    <details class="raw-json" style="margin-top:10px">
+      <summary>Ver consulta GraphQL enviada</summary>
+      <pre class="raw-json-pre">${escHtml(formatSentQuery(PRODUCT_ASSOCIATED_QUERY, variables))}</pre>
+    </details>
+  `;
+
+  let data;
+  try {
+    data = await graphqlFetch(PRODUCT_ASSOCIATED_QUERY, variables);
+  } catch (err) {
+    if (variantsRequestSku !== sku) return;
+    box.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>${queryDetails}`;
+    return;
+  }
+  if (variantsRequestSku !== sku) return;
+
+  if (data.errors && data.errors.length > 0) {
+    box.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>${queryDetails}`;
+    return;
+  }
+
+  // Collect the simple products from every option value, deduplicated by SKU
+  const bySku = new Map();
+  (data?.data?.products || []).filter(Boolean).forEach((p) => {
+    (p.options || []).forEach((opt) => {
+      (opt.values || []).forEach((val) => {
+        if (val && val.product && val.product.sku) bySku.set(val.product.sku, val.product);
+      });
+    });
+  });
+
+  if (bySku.size === 0) {
+    box.innerHTML = `<p class="pmd-empty">Sin productos simples asociados.</p>${queryDetails}`;
+    return;
+  }
+
+  const rows = [...bySku.values()].map((p) => `
+    <tr>
+      <td class="pmd-attr-name"><span class="product-sku">${escHtml(p.sku)}</span></td>
+      <td class="pmd-attr-value">${escHtml(p.name || '—')}</td>
+    </tr>
+  `).join('');
+
+  box.innerHTML = `
+    <div class="pmd-table-wrap">
+      <table class="pmd-attrs-table">
+        <thead><tr><th>SKU</th><th>Nombre</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${queryDetails}
+  `;
 }
 
 // ===== PRODUCT DETAIL MODAL =====
@@ -1909,9 +2007,15 @@ function openProductModal(pv) {
   $('product-modal-content').innerHTML = buildProductModalContent(pv);
   $('product-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
+  if (pv.__typename === 'ComplexProductView' && pv.sku) {
+    loadAssociatedProducts(pv.sku);
+  } else {
+    variantsRequestSku = null;
+  }
 }
 
 function closeProductModal() {
+  variantsRequestSku = null;
   $('product-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
 }
@@ -1953,6 +2057,15 @@ function buildProductModalContent(pv) {
     `
     : `<div class="pmd-section"><p class="pmd-empty">Sin atributos disponibles.</p></div>`;
 
+  const variantsSection = pv.__typename === 'ComplexProductView'
+    ? `
+      <div class="pmd-section">
+        <div class="pmd-section-title">Productos simples asociados</div>
+        <div id="pmd-variants-body"><p class="pmd-empty">Cargando…</p></div>
+      </div>
+    `
+    : '';
+
   return `
     <div class="pmd-hero">
       <div class="pmd-hero-main">
@@ -1960,9 +2073,11 @@ function buildProductModalContent(pv) {
         <div class="pmd-sku-row">
           <span class="pmd-sku-label">SKU</span>
           <span class="product-sku">${escHtml(pv.sku || '—')}</span>
+          ${buildProductTypeBadge(pv)}
         </div>
       </div>
     </div>
+    ${variantsSection}
     ${attrsSection}
   `;
 }

@@ -12,6 +12,7 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 - **Gestión de Websites y Store Views** desde un modal, también persistida en `localStorage`. Al seleccionar un website se filtran sus store views asociadas.
 - **Pestaña Productos:** búsqueda con `productSearch` por `phrase`, resultados en tarjetas con SKU y atributos, sección de facets y modal de detalle por producto.
 - **Pestaña Productos por SKU:** consulta con el endpoint `products` (`skus`) a partir de uno o varios SKUs separados por coma o espacio. Muestra las mismas tarjetas y el modal de detalle, e indica los SKUs no encontrados. Este endpoint no tiene paginación ni facets.
+- **Tipo de producto y simples asociados:** las tarjetas y el modal muestran si el producto es *Simple* o *Complex*. Al abrir un complejo, el modal carga bajo demanda (query `products` con `options`) sus productos simples asociados.
 - **Pestaña Categorías:** árbol jerárquico (reconstruido desde el campo `path`) con expandir/colapsar todo y por nodo. Indica visualmente las categorías ocultas en menú (sin el rol `show_in_menu`). Cada categoría tiene un acceso directo para ver sus productos.
 - **Pestaña Productos de Categorías:** lista los productos de una categoría (filtro `categoryIds` en `productSearch`). Se puede abrir desde el árbol de categorías o introduciendo directamente un Category ID.
 - **Paginación** en ambas pestañas de productos (`page_size` + `current_page`), con controles de página encima de los resultados.
