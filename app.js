@@ -15,6 +15,7 @@ const LS_WS_KEY = 'catalogService.websites';
 const LS_SETTINGS_KEY = 'catalogService.settings';
 const LS_LAST_USED_KEY = 'catalogService.lastUsed';
 const LS_FAV_ATTRS_KEY = 'catalogService.favoriteAttributes';
+const LS_SORT_KEY = 'catalogService.productSort';
 
 // Default application settings
 const DEFAULT_SETTINGS = {
@@ -254,6 +255,7 @@ function exportConfig() {
       settings: safeParse(localStorage.getItem(LS_SETTINGS_KEY), DEFAULT_SETTINGS),
       lastUsed: safeParse(localStorage.getItem(LS_LAST_USED_KEY), DEFAULT_LAST_USED),
       favoriteAttributes: safeParse(localStorage.getItem(LS_FAV_ATTRS_KEY), []),
+      productSort: safeParse(localStorage.getItem(LS_SORT_KEY), {}),
     },
   };
 
@@ -298,7 +300,7 @@ function applyImportedConfig(parsed) {
     return;
   }
 
-  const hasAny = ['environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes'].some((k) => k in data);
+  const hasAny = ['environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes', 'productSort'].some((k) => k in data);
   if (!hasAny) {
     showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
     return;
@@ -324,11 +326,15 @@ function applyImportedConfig(parsed) {
   if ('favoriteAttributes' in data && Array.isArray(data.favoriteAttributes)) {
     localStorage.setItem(LS_FAV_ATTRS_KEY, JSON.stringify(data.favoriteAttributes));
   }
+  if ('productSort' in data && data.productSort && typeof data.productSort === 'object' && !Array.isArray(data.productSort)) {
+    localStorage.setItem(LS_SORT_KEY, JSON.stringify(data.productSort));
+  }
 
   // Reload in-memory state from storage
   loadSettings();
   loadLastUsed();
   loadFavoriteAttributes();
+  loadProductSort();
   refreshAttributeViews();
   loadEnvironments();
   loadWebsites();
@@ -342,6 +348,8 @@ function applyImportedConfig(parsed) {
   $('store-view-select').value = '';
   populateSidebarWebsites();
   fillSettingsForm();
+  productSortInvalid = false;
+  updateSortButton();
 
   // Restore last-used input values
   $('product-phrase').value = lastUsed.productPhrase || '';
@@ -465,8 +473,9 @@ function renderEnvironments() {
     // Click to select
     item.addEventListener('click', (e) => {
       if (e.target.closest('.env-item-delete, .env-item-edit')) return;
-      if (activeEnvironment !== env) resetFacetContext();
+      const changed = activeEnvironment !== env;
       activeEnvironment = env;
+      if (changed) resetFacetContext();
       setLastUsed('environmentId', env.id);
       renderEnvironments();
       updateActiveEnvDisplay();
@@ -485,6 +494,11 @@ function renderEnvironments() {
         activeEnvironment = null;
       }
       if (editingEnvId === env.id) resetEnvForm();
+      // Drop the sort saved for this environment
+      if (productSortByEnv[env.id]) {
+        delete productSortByEnv[env.id];
+        saveProductSort();
+      }
       environments.splice(index, 1);
       saveEnvironments();
       renderEnvironments();
@@ -1147,8 +1161,8 @@ function computePageList(current, totalPages) {
 // ===== PRODUCTS TAB =====
 
 const PRODUCT_SEARCH_QUERY = `
-query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int, $filter: [SearchClauseInput!]) {
-  productSearch(phrase: $phrase, page_size: $pageSize, current_page: $currentPage, filter: $filter) {
+query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int, $filter: [SearchClauseInput!], $sort: [ProductSearchSortInput!]) {
+  productSearch(phrase: $phrase, page_size: $pageSize, current_page: $currentPage, filter: $filter, sort: $sort) {
     total_count
     page_info {
       current_page
@@ -1228,7 +1242,11 @@ function getAttributeMetadata() {
         const meta = data?.data?.attributeMetadata;
         if (!meta) throw new Error('La respuesta no contiene attributeMetadata');
         const names = (list) => new Set((list || []).map((a) => a.attribute));
-        return { filterable: names(meta.filterableInSearch), sortable: names(meta.sortable) };
+        return {
+          filterable: names(meta.filterableInSearch),
+          sortable: names(meta.sortable),
+          sortableList: (meta.sortable || []).map((a) => ({ attribute: a.attribute, label: a.label })),
+        };
       })
       .catch((err) => {
         console.warn('No se pudo cargar attributeMetadata:', err.message);
@@ -1302,10 +1320,174 @@ function isFacetBucketActive(attribute, key) {
   return !!state && state.entries.has(key);
 }
 
+// ===== PRODUCT SORT (saved per environment) =====
+
+// { [environmentId]: { attribute, direction: 'ASC' | 'DESC' } }
+let productSortByEnv = {};
+
+// True when the saved sort was ignored because its attribute is no longer sortable in the current context
+let productSortInvalid = false;
+
+function loadProductSort() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_SORT_KEY));
+    productSortByEnv = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    productSortByEnv = {};
+  }
+}
+
+function saveProductSort() {
+  localStorage.setItem(LS_SORT_KEY, JSON.stringify(productSortByEnv));
+}
+
+// Saved sort of the active environment, or null
+function getProductSort() {
+  const sort = activeEnvironment ? productSortByEnv[activeEnvironment.id] : null;
+  const valid = sort && typeof sort.attribute === 'string' && (sort.direction === 'ASC' || sort.direction === 'DESC');
+  return valid ? sort : null;
+}
+
+function setProductSort(sort) {
+  if (!activeEnvironment) return;
+  if (sort) productSortByEnv[activeEnvironment.id] = sort;
+  else delete productSortByEnv[activeEnvironment.id];
+  saveProductSort();
+}
+
+// The saved sort if it can be sent: its attribute must still be sortable.
+// Without metadata it cannot be validated, so it is sent as saved.
+function resolveProductSort(saved, metadata) {
+  if (!saved) return null;
+  if (!metadata || metadata.sortable.has(saved.attribute)) return saved;
+  return null;
+}
+
+function updateSortButton() {
+  const sort = getProductSort();
+  const btn = $('btn-product-sort');
+  const badge = $('product-sort-badge');
+
+  if (!sort) {
+    badge.style.display = 'none';
+    btn.title = '';
+    return;
+  }
+  badge.style.display = 'inline-block';
+  badge.classList.toggle('warning', productSortInvalid);
+  badge.textContent = productSortInvalid ? '!' : (sort.direction === 'ASC' ? '↑' : '↓');
+  btn.title = productSortInvalid
+    ? `El orden guardado "${sort.attribute}" ya no es ordenable en este contexto y se ha ignorado`
+    : `Orden: ${sort.attribute} ${sort.direction}`;
+}
+
+function openSortModal() {
+  $('sort-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  renderSortModal();
+}
+
+function closeSortModal() {
+  $('sort-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+async function renderSortModal() {
+  const content = $('sort-modal-content');
+  const message = (text) => { content.innerHTML = `<p class="sort-modal-msg">${text}</p>`; };
+
+  const errors = validateConfig();
+  if (errors.length > 0) {
+    message(errors.map(escHtml).join('<br>'));
+    return;
+  }
+
+  message('Cargando atributos ordenables...');
+  const metadata = await getAttributeMetadata();
+  if ($('sort-modal-overlay').style.display === 'none') return; // closed while loading
+
+  if (!metadata) {
+    message('No se pudieron cargar los atributos ordenables de este contexto.');
+    return;
+  }
+
+  const saved = getProductSort();
+  const stale = saved && !metadata.sortable.has(saved.attribute);
+  const current = saved
+    ? `
+      <div class="sort-current${stale ? ' warning' : ''}">
+        <span>${stale
+          ? `El orden guardado <strong>${escHtml(saved.attribute)}</strong> ya no es ordenable en este contexto y se ignora.`
+          : `Orden actual: <strong>${escHtml(saved.attribute)}</strong> ${saved.direction}`}</span>
+        <button type="button" class="sort-clear">Quitar orden</button>
+      </div>`
+    : '';
+
+  const rows = [...metadata.sortableList]
+    .sort((a, b) => (a.label || a.attribute).localeCompare(b.label || b.attribute))
+    .map((a) => {
+      const dirBtn = (dir) => {
+        const active = saved && saved.attribute === a.attribute && saved.direction === dir && !stale;
+        return `<button type="button" class="sort-dir-btn${active ? ' active' : ''}"
+          data-attribute="${escHtml(a.attribute)}" data-direction="${dir}">${dir}</button>`;
+      };
+      return `
+        <div class="sort-row">
+          <div class="sort-row-name">
+            <span>${escHtml(a.label || a.attribute)}</span>
+            <span class="sort-row-attr">${escHtml(a.attribute)}</span>
+          </div>
+          <div class="sort-row-dirs">${dirBtn('ASC')}${dirBtn('DESC')}</div>
+        </div>`;
+    }).join('');
+
+  content.innerHTML = current + (rows || '<p class="sort-modal-msg">Este contexto no tiene atributos ordenables.</p>');
+}
+
+// sort: { attribute, direction } or null to restore the default (relevance) order
+function applyProductSort(sort) {
+  setProductSort(sort);
+  productSortInvalid = false;
+  updateSortButton();
+  closeSortModal();
+  // Re-run the active search; without one the sort is just saved for the next search
+  if (currentProductPhrase) runProductSearch(1, true);
+}
+
+function initProductSort() {
+  loadProductSort();
+  updateSortButton();
+
+  $('btn-product-sort').addEventListener('click', openSortModal);
+  $('btn-close-sort-modal').addEventListener('click', closeSortModal);
+  $('sort-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('sort-modal-overlay')) closeSortModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('sort-modal-overlay').style.display !== 'none') closeSortModal();
+  });
+
+  $('sort-modal-content').addEventListener('click', (e) => {
+    if (e.target.closest('.sort-clear')) {
+      applyProductSort(null);
+      return;
+    }
+    const btn = e.target.closest('.sort-dir-btn');
+    if (!btn) return;
+    const { attribute, direction } = btn.dataset;
+    const saved = getProductSort();
+    // Clicking the active option again clears the sort
+    const same = saved && saved.attribute === attribute && saved.direction === direction;
+    applyProductSort(same ? null : { attribute, direction });
+  });
+}
+
 // Context changed (environment, website or store view): filters, facets and metadata are no longer valid
 function resetFacetContext() {
   activeFacetFilters.clear();
   attributeMetadataCache.clear();
+  productSortInvalid = false;
+  updateSortButton();
   const facets = $('products-facets');
   const chips = $('products-active-filters');
   if (facets) facets.innerHTML = '';
@@ -1396,6 +1578,7 @@ function initFacetFilters() {
 
 function initProductsTab() {
   initFacetFilters();
+  initProductSort();
 
   const searchBtn = $('btn-product-search');
   const phraseInput = $('product-phrase');
@@ -1463,6 +1646,13 @@ async function runProductSearch(page = 1, keepState = false) {
 
   // Metadata loads once per context and never rejects (null on failure)
   const metadataPromise = getAttributeMetadata();
+
+  // The saved sort is only sent while its attribute is still sortable, so wait for the metadata
+  const savedSort = getProductSort();
+  const sort = resolveProductSort(savedSort, savedSort ? await metadataPromise : null);
+  productSortInvalid = !!savedSort && !sort;
+  updateSortButton();
+  if (sort) variables.sort = [sort];
 
   try {
     const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, variables);

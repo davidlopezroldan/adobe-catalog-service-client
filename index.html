@@ -205,6 +205,11 @@
             Filtrar
             <span id="product-filter-count" class="filter-btn-count" style="display:none"></span>
           </button>
+          <button id="btn-product-sort" class="btn btn-secondary" style="padding:9px 20px;font-size:13px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/></svg>
+            Ordenar
+            <span id="product-sort-badge" class="filter-btn-count" style="display:none"></span>
+          </button>
         </div>
 
         <!-- Results area -->
@@ -551,6 +556,22 @@
       </div>
       <div class="modal-body facet-modal-body">
         <div id="products-facets"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: ORDENAR PRODUCTOS ===== -->
+  <div id="sort-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal modal-sort">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/></svg>
+          <span>Ordenar productos</span>
+        </div>
+        <button id="btn-close-sort-modal" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+      <div class="modal-body sort-modal-body">
+        <div id="sort-modal-content"></div>
       </div>
     </div>
   </div>
