@@ -819,6 +819,29 @@ button.facet-bucket-btn.facet-disabled {
   margin-left: 3px;
 }
 
+/* ===== FACETS MODAL ===== */
+.modal-facets {
+  max-width: 900px;
+}
+
+.facet-modal-body {
+  display: block;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.filter-btn-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
 /* ===== ACTIVE FACET FILTERS ===== */
 .active-filters {
   display: flex;

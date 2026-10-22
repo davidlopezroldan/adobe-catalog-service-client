@@ -200,6 +200,11 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             Buscar productos
           </button>
+          <button id="btn-product-filter" class="btn btn-secondary" style="padding:9px 20px;font-size:13px;" disabled title="Realiza una búsqueda para ver los facets">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtrar
+            <span id="product-filter-count" class="filter-btn-count" style="display:none"></span>
+          </button>
         </div>
 
         <!-- Results area -->
@@ -228,9 +233,6 @@
 
           <!-- Product cards -->
           <div id="products-results"></div>
-
-          <!-- Facets -->
-          <div id="products-facets"></div>
 
           <!-- Raw JSON -->
           <div id="products-raw-container" class="raw-json-container" style="display:none">
@@ -533,6 +535,22 @@
       </div>
       <div class="modal-body product-modal-body">
         <div id="product-modal-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: FACETS (FILTRAR PRODUCTOS) ===== -->
+  <div id="facet-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal modal-facets">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          <span>Filtrar por facets</span>
+        </div>
+        <button id="btn-close-facet-modal" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+      <div class="modal-body facet-modal-body">
+        <div id="products-facets"></div>
       </div>
     </div>
   </div>

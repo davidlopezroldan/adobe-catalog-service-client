@@ -1310,11 +1310,13 @@ function resetFacetContext() {
   const chips = $('products-active-filters');
   if (facets) facets.innerHTML = '';
   if (chips) chips.innerHTML = '';
+  updateFilterButton();
 }
 
 function renderActiveFilters() {
   const container = $('products-active-filters');
   container.innerHTML = '';
+  updateFilterButton();
   if (activeFacetFilters.size === 0) return;
 
   const chips = [];
@@ -1340,7 +1342,40 @@ function renderActiveFilters() {
   `;
 }
 
+function openFacetModal() {
+  $('facet-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeFacetModal() {
+  $('facet-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// The "Filtrar" button needs facets (or applied filters) to be useful and shows how many values are applied
+function updateFilterButton() {
+  let applied = 0;
+  activeFacetFilters.forEach((state) => { applied += state.entries.size; });
+  const hasFacets = $('products-facets').children.length > 0;
+
+  $('btn-product-filter').disabled = !hasFacets && applied === 0;
+  $('btn-product-filter').title = hasFacets || applied > 0 ? '' : 'Realiza una búsqueda para ver los facets';
+
+  const badge = $('product-filter-count');
+  badge.textContent = applied;
+  badge.style.display = applied > 0 ? 'inline-block' : 'none';
+}
+
 function initFacetFilters() {
+  $('btn-product-filter').addEventListener('click', openFacetModal);
+  $('btn-close-facet-modal').addEventListener('click', closeFacetModal);
+  $('facet-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('facet-modal-overlay')) closeFacetModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('facet-modal-overlay').style.display !== 'none') closeFacetModal();
+  });
+
   $('products-active-filters').addEventListener('click', (e) => {
     const remove = e.target.closest('.filter-chip-remove');
     if (remove) {
@@ -1393,7 +1428,8 @@ async function runProductSearch(page = 1, keepState = false) {
 
   // Clear previous results
   $('products-results').innerHTML = '';
-  $('products-facets').innerHTML = '';
+  // Keep the facets while the modal is open (facet clicks, pagination); renderFacets replaces them
+  if (!keepState) $('products-facets').innerHTML = '';
   renderActiveFilters();
   $('products-pagination').innerHTML = '';
   $('products-pagination').style.display = 'none';
@@ -1597,6 +1633,9 @@ function showProductError(msg) {
   const el = $('products-error');
   el.style.display = 'flex';
   el.querySelector('.error-text').textContent = msg;
+  // Stale facets would not match the failed search
+  $('products-facets').innerHTML = '';
+  updateFilterButton();
 }
 
 function renderProducts(result, metadata = null) {
@@ -1718,9 +1757,10 @@ function buildAttrsHtml(attributes) {
 // metadata: result of getAttributeMetadata(); when null every scalar/range bucket stays clickable
 function renderFacets(facets, metadata = null) {
   const container = $('products-facets');
+  container.innerHTML = '';
 
   if (!facets || facets.length === 0) {
-    container.innerHTML = '';
+    updateFilterButton();
     return;
   }
 
@@ -1777,6 +1817,7 @@ function renderFacets(facets, metadata = null) {
   });
 
   container.appendChild(grid);
+  updateFilterButton();
 }
 
 // ===== UTILS =====
