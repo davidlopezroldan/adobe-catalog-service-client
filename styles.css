@@ -792,6 +792,83 @@ input::placeholder {
   color: var(--color-text-muted);
 }
 
+button.facet-bucket-btn {
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+button.facet-bucket-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+button.facet-bucket-btn.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+button.facet-bucket-btn.facet-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.facet-bucket-count {
+  opacity: 0.7;
+  margin-left: 3px;
+}
+
+/* ===== ACTIVE FACET FILTERS ===== */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  background: var(--color-surface2);
+  border: 1px solid var(--color-accent);
+  border-radius: 12px;
+  padding: 2px 4px 2px 10px;
+  color: var(--color-text);
+}
+
+.filter-chip-facet {
+  color: var(--color-text-muted);
+}
+
+.filter-chip-remove,
+.filter-clear-all {
+  font-family: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+}
+
+.filter-chip-remove {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 50%;
+}
+
+.filter-chip-remove:hover,
+.filter-clear-all:hover {
+  color: var(--color-accent-hover);
+}
+
+.filter-clear-all {
+  font-size: 12px;
+  text-decoration: underline;
+}
+
 /* ===== JSON RAW ===== */
 .raw-json-container {
   background: var(--color-surface);

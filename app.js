@@ -465,6 +465,7 @@ function renderEnvironments() {
     // Click to select
     item.addEventListener('click', (e) => {
       if (e.target.closest('.env-item-delete, .env-item-edit')) return;
+      if (activeEnvironment !== env) resetFacetContext();
       activeEnvironment = env;
       setLastUsed('environmentId', env.id);
       renderEnvironments();
@@ -639,10 +640,12 @@ function initWebsiteSelector() {
   websiteSelect.addEventListener('change', () => {
     setLastUsed('website', websiteSelect.value);
     populateSidebarStoreViews(websiteSelect.value);
+    resetFacetContext();
   });
 
   storeViewSelect.addEventListener('change', () => {
     setLastUsed('storeView', storeViewSelect.value);
+    resetFacetContext();
   });
 
   populateSidebarWebsites();
@@ -1144,8 +1147,8 @@ function computePageList(current, totalPages) {
 // ===== PRODUCTS TAB =====
 
 const PRODUCT_SEARCH_QUERY = `
-query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int) {
-  productSearch(phrase: $phrase, page_size: $pageSize, current_page: $currentPage) {
+query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int, $filter: [SearchClauseInput!]) {
+  productSearch(phrase: $phrase, page_size: $pageSize, current_page: $currentPage, filter: $filter) {
     total_count
     page_info {
       current_page
@@ -1170,14 +1173,195 @@ query ProductSearch($phrase: String!, $pageSize: Int, $currentPage: Int) {
       title
       type
       buckets {
+        __typename
         title
+        ... on ScalarBucket {
+          id
+          count
+        }
+        ... on RangeBucket {
+          from
+          to
+          count
+        }
       }
     }
   }
 }
 `.trim();
 
+// ===== ATTRIBUTE METADATA (cached per environment / website / store view) =====
+
+const ATTRIBUTE_METADATA_QUERY = `
+{
+  attributeMetadata {
+    filterableInSearch {
+      attribute
+      frontendInput
+      label
+      numeric
+    }
+    sortable {
+      attribute
+      frontendInput
+      label
+      numeric
+    }
+  }
+}
+`.trim();
+
+// Map<contextKey, Promise<{filterable:Set<string>, sortable:Set<string>} | null>>
+const attributeMetadataCache = new Map();
+
+function getContextKey() {
+  const envId = activeEnvironment ? activeEnvironment.environmentId : '';
+  return `${envId}|${$('website-select').value}|${$('store-view-select').value}`;
+}
+
+// Resolves to null when the metadata cannot be loaded, so callers can degrade gracefully
+function getAttributeMetadata() {
+  const key = getContextKey();
+  if (!attributeMetadataCache.has(key)) {
+    const promise = graphqlFetch(ATTRIBUTE_METADATA_QUERY)
+      .then((data) => {
+        const meta = data?.data?.attributeMetadata;
+        if (!meta) throw new Error('La respuesta no contiene attributeMetadata');
+        const names = (list) => new Set((list || []).map((a) => a.attribute));
+        return { filterable: names(meta.filterableInSearch), sortable: names(meta.sortable) };
+      })
+      .catch((err) => {
+        console.warn('No se pudo cargar attributeMetadata:', err.message);
+        attributeMetadataCache.delete(key);
+        return null;
+      });
+    attributeMetadataCache.set(key, promise);
+  }
+  return attributeMetadataCache.get(key);
+}
+
+// ===== FACET FILTERS =====
+
+// Map<attribute, {kind:'scalar'|'range', title, entries: Map<key,{label, value}>}>
+// OR within an attribute, AND between attributes
+const activeFacetFilters = new Map();
+
+function buildSearchFilter() {
+  const filter = [];
+  activeFacetFilters.forEach((state, attribute) => {
+    const values = [...state.entries.values()].map((e) => e.value);
+    if (values.length === 0) return;
+    if (state.kind === 'range') {
+      const { from, to } = values[0];
+      const range = {};
+      if (from != null) range.from = from;
+      if (to != null) range.to = to;
+      filter.push({ attribute, range });
+    } else {
+      filter.push({ attribute, in: values });
+    }
+  });
+  return filter;
+}
+
+function toggleFacetBucket(btn) {
+  const { attribute, kind, facetTitle, label, value, from, to } = btn.dataset;
+  const key = kind === 'range' ? `${from}-${to}` : value;
+  let state = activeFacetFilters.get(attribute);
+
+  if (state && state.entries.has(key)) {
+    state.entries.delete(key);
+    if (state.entries.size === 0) activeFacetFilters.delete(attribute);
+  } else {
+    if (!state || state.kind !== kind) {
+      state = { kind, title: facetTitle, entries: new Map() };
+      activeFacetFilters.set(attribute, state);
+    }
+    // A range facet only supports one range at a time
+    if (kind === 'range') state.entries.clear();
+    const parseBound = (v) => (v === '' || v == null ? null : Number(v));
+    state.entries.set(key, {
+      label,
+      value: kind === 'range' ? { from: parseBound(from), to: parseBound(to) } : value,
+    });
+  }
+
+  runProductSearch(1, true);
+}
+
+function removeFacetFilter(attribute, key) {
+  const state = activeFacetFilters.get(attribute);
+  if (!state) return;
+  state.entries.delete(key);
+  if (state.entries.size === 0) activeFacetFilters.delete(attribute);
+  runProductSearch(1, true);
+}
+
+function isFacetBucketActive(attribute, key) {
+  const state = activeFacetFilters.get(attribute);
+  return !!state && state.entries.has(key);
+}
+
+// Context changed (environment, website or store view): filters, facets and metadata are no longer valid
+function resetFacetContext() {
+  activeFacetFilters.clear();
+  attributeMetadataCache.clear();
+  const facets = $('products-facets');
+  const chips = $('products-active-filters');
+  if (facets) facets.innerHTML = '';
+  if (chips) chips.innerHTML = '';
+}
+
+function renderActiveFilters() {
+  const container = $('products-active-filters');
+  container.innerHTML = '';
+  if (activeFacetFilters.size === 0) return;
+
+  const chips = [];
+  activeFacetFilters.forEach((state, attribute) => {
+    state.entries.forEach((entry, key) => {
+      chips.push(`
+        <span class="filter-chip">
+          <span class="filter-chip-facet">${escHtml(state.title || attribute)}:</span>
+          ${escHtml(entry.label)}
+          <button type="button" class="filter-chip-remove" title="Quitar filtro"
+            data-attribute="${escHtml(attribute)}" data-key="${escHtml(key)}">&#x2715;</button>
+        </span>
+      `);
+    });
+  });
+
+  container.innerHTML = `
+    <div class="section-title">Filtros aplicados</div>
+    <div class="active-filters">
+      ${chips.join('')}
+      <button type="button" class="filter-clear-all">Limpiar todo</button>
+    </div>
+  `;
+}
+
+function initFacetFilters() {
+  $('products-active-filters').addEventListener('click', (e) => {
+    const remove = e.target.closest('.filter-chip-remove');
+    if (remove) {
+      removeFacetFilter(remove.dataset.attribute, remove.dataset.key);
+      return;
+    }
+    if (e.target.closest('.filter-clear-all')) {
+      activeFacetFilters.clear();
+      runProductSearch(1, true);
+    }
+  });
+
+  $('products-facets').addEventListener('click', (e) => {
+    const btn = e.target.closest('button.facet-bucket');
+    if (btn && !btn.disabled) toggleFacetBucket(btn);
+  });
+}
+
 function initProductsTab() {
+  initFacetFilters();
+
   const searchBtn = $('btn-product-search');
   const phraseInput = $('product-phrase');
 
@@ -1196,18 +1380,21 @@ function initProductsTab() {
 // Keeps the phrase used for the active search so pagination reuses it
 let currentProductPhrase = '';
 
-async function runProductSearch(page = 1) {
-  // On a fresh search (page 1 triggered by the user) read the input;
-  // on pagination reuse the stored phrase.
-  if (page === 1) {
+// keepState: reuse the stored phrase and facet filters (pagination, facet clicks)
+async function runProductSearch(page = 1, keepState = false) {
+  // On a fresh search (triggered by the user) read the input and drop the filters;
+  // otherwise reuse the stored phrase.
+  if (page === 1 && !keepState) {
     currentProductPhrase = $('product-phrase').value.trim();
     setLastUsed('productPhrase', currentProductPhrase);
+    activeFacetFilters.clear();
   }
   const phrase = currentProductPhrase;
 
   // Clear previous results
   $('products-results').innerHTML = '';
   $('products-facets').innerHTML = '';
+  renderActiveFilters();
   $('products-pagination').innerHTML = '';
   $('products-pagination').style.display = 'none';
   $('products-raw-pre').textContent = '';
@@ -1235,9 +1422,15 @@ async function runProductSearch(page = 1) {
   $('btn-product-search').disabled = true;
 
   const variables = { phrase, pageSize: getResultLimit(), currentPage: page };
+  const filter = buildSearchFilter();
+  if (filter.length > 0) variables.filter = filter;
+
+  // Metadata loads once per context and never rejects (null on failure)
+  const metadataPromise = getAttributeMetadata();
 
   try {
     const data = await graphqlFetch(PRODUCT_SEARCH_QUERY, variables);
+    const metadata = await metadataPromise;
 
     $('products-loading').classList.remove('visible');
     $('btn-product-search').disabled = false;
@@ -1262,7 +1455,7 @@ async function runProductSearch(page = 1) {
       return;
     }
 
-    renderProducts(result);
+    renderProducts(result, metadata);
 
     // Scroll results back to top on page change
     const area = $('products-results').closest('.results-area');
@@ -1406,7 +1599,7 @@ function showProductError(msg) {
   el.querySelector('.error-text').textContent = msg;
 }
 
-function renderProducts(result) {
+function renderProducts(result, metadata = null) {
   const items = result.items || [];
   const facets = result.facets || [];
   const total = result.total_count != null ? result.total_count : items.length;
@@ -1431,11 +1624,11 @@ function renderProducts(result) {
       <div class="results-count"><strong>${total}</strong> producto${total !== 1 ? 's' : ''} en total · mostrando ${from}–${to}</div>
     `;
     renderProductCards(items);
-    renderPagination($('products-pagination'), pageInfo, total, (p) => runProductSearch(p));
+    renderPagination($('products-pagination'), pageInfo, total, (p) => runProductSearch(p, true));
   }
 
   // Facets
-  renderFacets(facets);
+  renderFacets(facets, metadata);
 }
 
 function renderProductCards(items, containerId = 'products-results') {
@@ -1522,7 +1715,8 @@ function buildAttrsHtml(attributes) {
   return `<table class="attrs-table"><tbody>${rows}</tbody></table>`;
 }
 
-function renderFacets(facets) {
+// metadata: result of getAttributeMetadata(); when null every scalar/range bucket stays clickable
+function renderFacets(facets, metadata = null) {
   const container = $('products-facets');
 
   if (!facets || facets.length === 0) {
@@ -1542,9 +1736,35 @@ function renderFacets(facets) {
     const card = document.createElement('div');
     card.className = 'facet-card';
 
-    const buckets = (facet.buckets || []).map((b) =>
-      `<span class="facet-bucket">${escHtml(b.title || '—')}</span>`
-    ).join('');
+    const facetFilterable = !metadata || metadata.filterable.has(facet.attribute);
+
+    const buckets = (facet.buckets || []).map((b) => {
+      const isRange = b.__typename === 'RangeBucket';
+      const isScalar = b.__typename === 'ScalarBucket';
+      const label = b.title || (isRange ? `${b.from ?? ''}–${b.to ?? ''}` : '—');
+      const count = b.count != null ? ` <span class="facet-bucket-count">(${escHtml(String(b.count))})</span>` : '';
+
+      // Stats / category buckets cannot be filtered directly
+      if (!(isScalar || isRange)) {
+        return `<span class="facet-bucket">${escHtml(label)}${count}</span>`;
+      }
+
+      const key = isRange ? `${b.from ?? ''}-${b.to ?? ''}` : String(b.id);
+      const active = isFacetBucketActive(facet.attribute, key);
+      const classes = `facet-bucket facet-bucket-btn${active ? ' active' : ''}${facetFilterable ? '' : ' facet-disabled'}`;
+      const data = [
+        `data-attribute="${escHtml(facet.attribute)}"`,
+        `data-facet-title="${escHtml(facet.title || facet.attribute)}"`,
+        `data-label="${escHtml(label)}"`,
+        `data-kind="${isRange ? 'range' : 'scalar'}"`,
+        isRange
+          ? `data-from="${escHtml(String(b.from ?? ''))}" data-to="${escHtml(String(b.to ?? ''))}"`
+          : `data-value="${escHtml(String(b.id))}"`,
+      ].join(' ');
+      const title = facetFilterable ? '' : ' title="No filtrable en este contexto"';
+
+      return `<button type="button" class="${classes}" ${data}${title}${facetFilterable ? '' : ' disabled'}>${escHtml(label)}${count}</button>`;
+    }).join('');
 
     card.innerHTML = `
       <div class="facet-title">${escHtml(facet.title || '—')}</div>
