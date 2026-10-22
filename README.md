@@ -16,11 +16,12 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 - **Atributos favoritos:** una estrella en cada atributo (tarjetas y modal de detalle) lo marca como favorito y lo coloca el primero en las listas de atributos. Dentro de favoritos y no favoritos, los atributos con valor se muestran antes que los vacíos. Si el valor de un atributo es una URL (`http`/`https`), se muestra como enlace que se abre en una pestaña nueva. Son globales por nombre de atributo, persisten en `localStorage` y se incluyen al exportar/importar la configuración.
 - **Pestaña Categorías:** árbol jerárquico (reconstruido desde el campo `path`) con expandir/colapsar todo y por nodo. Indica visualmente las categorías ocultas en menú (sin el rol `show_in_menu`). Cada categoría tiene un acceso directo para ver sus productos.
 - **Pestaña Productos de Categorías:** lista los productos de una categoría (filtro `categoryIds` en `productSearch`). Se puede abrir desde el árbol de categorías o introduciendo directamente un Category ID.
+- **Pestaña Metadatos:** carga `attributeMetadata` del contexto actual y lista en una tabla todos los atributos filtrables (`filterableInSearch`) y ordenables (`sortable`) con su label, `frontendInput`, si son numéricos y si son filtrables y/u ordenables, con resumen de totales, búsqueda por texto, filtros por capacidad y tipo de input, JSON crudo y consulta enviada.
 - **Paginación** en ambas pestañas de productos (`page_size` + `current_page`), con controles de página encima de los resultados.
 - **Ajustes** (icono de engranaje en la cabecera) con el tamaño de página (`page_size`, por defecto 500) persistido en `localStorage`.
 - **Exportar / importar configuración** a un archivo JSON (entornos, websites/store views, ajustes y últimas selecciones) para compartirla con el equipo.
 - **Persistencia de las últimas selecciones** (entorno, website, store view, último `phrase` y última category id) restauradas al recargar.
-- **Navegación por hash de URL** (`#products`, `#products-by-sku`, `#categories`, `#category-products`): la pestaña activa se mantiene al recargar y es enlazable.
+- **Navegación por hash de URL** (`#products`, `#products-by-sku`, `#categories`, `#category-products`, `#metadata`): la pestaña activa se mantiene al recargar y es enlazable.
 - **JSON crudo** de cada respuesta, colapsado por defecto.
 
 ## Headers enviados
@@ -55,6 +56,7 @@ app.js        Lógica: estado, llamadas GraphQL y renderizado
 ## Changelog
 
 ### 2026-10-22
+- Add Metadatos tab listing filterable and sortable attributes with their full metadata details
 - Add Ordenar button to sort product search by sortable attributes, saved per environment
 - Move facets into a modal opened from a new Filtrar button next to the search button
 - Add clickable facets to filter product search with applied filter chips

@@ -1225,7 +1225,7 @@ const ATTRIBUTE_METADATA_QUERY = `
 }
 `.trim();
 
-// Map<contextKey, Promise<{filterable:Set<string>, sortable:Set<string>} | null>>
+// Map<contextKey, Promise<{filterable, sortable: Set<string>, filterableList, sortableList: object[], raw} | null>>
 const attributeMetadataCache = new Map();
 
 function getContextKey() {
@@ -1245,7 +1245,9 @@ function getAttributeMetadata() {
         return {
           filterable: names(meta.filterableInSearch),
           sortable: names(meta.sortable),
-          sortableList: (meta.sortable || []).map((a) => ({ attribute: a.attribute, label: a.label })),
+          sortableList: meta.sortable || [],
+          filterableList: meta.filterableInSearch || [],
+          raw: data,
         };
       })
       .catch((err) => {
@@ -1256,6 +1258,106 @@ function getAttributeMetadata() {
     attributeMetadataCache.set(key, promise);
   }
   return attributeMetadataCache.get(key);
+}
+
+// ===== METADATA TAB =====
+
+// Merged rows (one per attribute) from the cached filterable / sortable lists
+function buildMetadataRows(metadata) {
+  const rows = new Map();
+  const add = (list, flag) => list.forEach((a) => {
+    const row = rows.get(a.attribute) || { attribute: a.attribute, label: a.label, frontendInput: a.frontendInput, numeric: a.numeric, filterable: false, sortable: false };
+    row[flag] = true;
+    rows.set(a.attribute, row);
+  });
+  add(metadata.filterableList, 'filterable');
+  add(metadata.sortableList, 'sortable');
+  return [...rows.values()].sort((a, b) => a.attribute.localeCompare(b.attribute));
+}
+
+let metadataRows = [];
+
+function renderMetadataTable() {
+  const text = $('metadata-search').value.trim().toLowerCase();
+  const capability = $('metadata-capability').value;
+  const input = $('metadata-input').value;
+
+  const rows = metadataRows.filter((r) => {
+    if (capability === 'filterable' && !r.filterable) return false;
+    if (capability === 'sortable' && !r.sortable) return false;
+    if (capability === 'both' && !(r.filterable && r.sortable)) return false;
+    if (input && r.frontendInput !== input) return false;
+    return !text || r.attribute.toLowerCase().includes(text) || (r.label || '').toLowerCase().includes(text);
+  });
+
+  const yes = '<span class="meta-flag yes">Sí</span>';
+  const no = '<span class="meta-flag">No</span>';
+  $('metadata-count').textContent = `${rows.length} de ${metadataRows.length}`;
+  $('metadata-tbody').innerHTML = rows.map((r) => `
+    <tr>
+      <td class="meta-attr">${escHtml(r.attribute)}</td>
+      <td>${escHtml(r.label || '')}</td>
+      <td>${escHtml(r.frontendInput || '')}</td>
+      <td>${r.numeric ? yes : no}</td>
+      <td>${r.filterable ? yes : no}</td>
+      <td>${r.sortable ? yes : no}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="meta-empty">Ningún atributo coincide con el filtro.</td></tr>';
+}
+
+async function runMetadataLoad() {
+  const show = (id, visible) => { $(id).style.display = visible ? '' : 'none'; };
+  show('metadata-error', false);
+  show('metadata-results', false);
+  show('metadata-raw-container', false);
+  show('metadata-query-container', false);
+  show('metadata-initial-state', false);
+
+  const errors = validateConfig();
+  if (errors.length > 0) {
+    $('metadata-error').querySelector('pre').textContent = errors.map((e) => `• ${e}`).join('\n');
+    show('metadata-error', true);
+    return;
+  }
+
+  $('metadata-loading').classList.add('visible');
+  $('btn-metadata-load').disabled = true;
+  attributeMetadataCache.delete(getContextKey()); // always fetch fresh data on explicit load
+  const metadata = await getAttributeMetadata();
+  $('metadata-loading').classList.remove('visible');
+  $('btn-metadata-load').disabled = false;
+
+  $('metadata-query-pre').textContent = formatSentQuery(ATTRIBUTE_METADATA_QUERY, {});
+  show('metadata-query-container', true);
+
+  if (!metadata) {
+    $('metadata-error').querySelector('pre').textContent = 'No se pudo cargar attributeMetadata de este contexto (revisa la consola).';
+    show('metadata-error', true);
+    return;
+  }
+
+  metadataRows = buildMetadataRows(metadata);
+  const both = metadataRows.filter((r) => r.filterable && r.sortable).length;
+  $('metadata-summary').innerHTML = `
+    <span><strong>${metadata.filterableList.length}</strong> filtrables</span>
+    <span><strong>${metadata.sortableList.length}</strong> ordenables</span>
+    <span><strong>${both}</strong> ambos</span>
+    <span><strong>${metadataRows.length}</strong> atributos en total</span>`;
+
+  const inputs = [...new Set(metadataRows.map((r) => r.frontendInput).filter(Boolean))].sort();
+  $('metadata-input').innerHTML = '<option value="">Todos los tipos de input</option>'
+    + inputs.map((i) => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+
+  renderMetadataTable();
+  show('metadata-results', true);
+  $('metadata-raw-pre').textContent = JSON.stringify(metadata.raw, null, 2);
+  show('metadata-raw-container', true);
+}
+
+function initMetadataTab() {
+  $('btn-metadata-load').addEventListener('click', runMetadataLoad);
+  ['metadata-search', 'metadata-capability', 'metadata-input'].forEach((id) => {
+    $(id).addEventListener(id === 'metadata-search' ? 'input' : 'change', renderMetadataTable);
+  });
 }
 
 // ===== FACET FILTERS =====
@@ -1486,6 +1588,13 @@ function initProductSort() {
 function resetFacetContext() {
   activeFacetFilters.clear();
   attributeMetadataCache.clear();
+  metadataRows = [];
+  ['metadata-results', 'metadata-raw-container', 'metadata-query-container', 'metadata-error'].forEach((id) => {
+    const el = $(id);
+    if (el) el.style.display = 'none';
+  });
+  const metaInitial = $('metadata-initial-state');
+  if (metaInitial) metaInitial.style.display = '';
   productSortInvalid = false;
   updateSortButton();
   const facets = $('products-facets');
@@ -2727,5 +2836,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initProductsBySkuTab();
   initCategoriesTab();
   initCategoryProductsTab();
+  initMetadataTab();
   initProductModal();
 });
