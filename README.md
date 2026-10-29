@@ -23,6 +23,7 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 - **Persistencia de las últimas selecciones** (entorno, website, store view, último `phrase` y última category id) restauradas al recargar.
 - **Navegación por hash de URL** (`#products`, `#products-by-sku`, `#categories`, `#category-products`, `#metadata`): la pestaña activa se mantiene al recargar y es enlazable.
 - **JSON crudo** de cada respuesta, colapsado por defecto.
+- **Favicon** con el logotipo ACS de la cabecera (SVG e ICO con varios tamaños), icono para iOS y `theme-color` naranja.
 
 ## Headers enviados
 
@@ -48,12 +49,18 @@ Al ser una aplicación estática, basta con abrir `index.html` en el navegador.
 ## Estructura
 
 ```
-index.html    Estructura de la interfaz
-styles.css    Estilos
-app.js        Lógica: estado, llamadas GraphQL y renderizado
+index.html      Estructura de la interfaz
+styles.css      Estilos
+app.js          Lógica: estado, llamadas GraphQL y renderizado
+media/icons/    Favicons e iconos de la aplicación
+                (favicon.svg, favicon.ico, favicon-32.png,
+                 favicon-512.png y apple-touch-icon.png)
 ```
 
 ## Changelog
+
+### 2026-10-29
+- Add ACS favicon (SVG, ICO and PNG) and iOS touch icon in media/icons
 
 ### 2026-10-22
 - Add Metadatos tab listing filterable and sortable attributes with their full metadata details
