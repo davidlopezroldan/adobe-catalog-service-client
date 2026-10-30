@@ -3663,16 +3663,39 @@ function renderCategoryProducts(result) {
 
 // ===== PRODUCT TYPE & VARIANTS =====
 
-const PRODUCT_ASSOCIATED_QUERY = `query Products($skus: [String]!) {
+const PRODUCT_OPTIONS_QUERY = `query Products($skus: [String]!) {
   products(skus: $skus) {
     ... on ComplexProductView {
-      name
       options {
+        id
+        title
+        required
+        multi
         values {
+          id
+          title
+          inStock
+          ... on ProductViewOptionValueSwatch {
+            type
+            value
+          }
           ... on ProductViewOptionValueProduct {
+            quantity
+            isDefault
             product {
               sku
               name
+              inStock
+              ... on SimpleProductView {
+                price {
+                  final {
+                    amount {
+                      value
+                      currency
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -3681,8 +3704,37 @@ const PRODUCT_ASSOCIATED_QUERY = `query Products($skus: [String]!) {
   }
 }`;
 
-// SKU of the complex product whose associated products the modal is showing (ignores stale responses)
+const PRODUCT_VARIANTS_QUERY = `query Variants($sku: String!, $pageSize: Int, $cursor: String) {
+  variants(sku: $sku, pageSize: $pageSize, cursor: $cursor) {
+    variants {
+      selections
+      product {
+        sku
+        name
+        inStock
+        ... on SimpleProductView {
+          price {
+            final {
+              amount {
+                value
+                currency
+              }
+            }
+          }
+        }
+      }
+    }
+    cursor
+  }
+}`;
+
+const VARIANTS_PAGE_SIZE = 100; // maximum allowed by the variants query
+
+// SKU of the complex product whose options/variants the modal is showing (ignores stale responses)
 let variantsRequestSku = null;
+
+// State of the variants being listed in the modal: { labels, rows, cursor, queries }
+let variantsState = null;
 
 function getProductTypeLabel(pv) {
   if (pv.__typename === 'SimpleProductView') return 'Simple';
@@ -3697,63 +3749,200 @@ function buildProductTypeBadge(pv) {
   return `<span class="tag ${cls}">${escHtml(label)}</span>`;
 }
 
-async function loadAssociatedProducts(sku) {
-  variantsRequestSku = sku;
-  const box = $('pmd-variants-body');
-  const variables = { skus: [sku] };
-  const queryDetails = `
+function formatProductPrice(product) {
+  const amount = product && product.price && product.price.final && product.price.final.amount;
+  return amount && amount.value != null ? `${amount.value} ${amount.currency || ''}`.trim() : '—';
+}
+
+function stockHtml(inStock) {
+  if (inStock === true) return '<span class="stock-in">Sí</span>';
+  if (inStock === false) return '<span class="stock-out">No</span>';
+  return '—';
+}
+
+// Sent requests of the modal (options + each variants page), each with its real headers
+function renderModalQueries(blocks) {
+  const el = $('pmd-query-body');
+  if (!el) return;
+  el.innerHTML = blocks.map((b) => `
     <details class="raw-json" style="margin-top:10px">
-      <summary>Ver consulta GraphQL enviada</summary>
-      <pre class="raw-json-pre">${escHtml(formatSentQuery(PRODUCT_ASSOCIATED_QUERY, variables))}</pre>
+      <summary>Ver consulta GraphQL enviada · ${escHtml(b.title)}</summary>
+      <pre class="raw-json-pre">${escHtml(b.text)}</pre>
     </details>
+  `).join('');
+}
+
+function buildOptionValueChip(v) {
+  const swatch = v.type === 'COLOR_HEX' && /^#[0-9a-f]{3,8}$/i.test(v.value || '')
+    ? `<span class="opt-swatch" style="background:${v.value}"></span>`
+    : '';
+  const stock = v.inStock === false ? ' <span class="stock-out">sin stock</span>' : '';
+  return `<span class="opt-chip" title="${escHtml(v.id || '')}">${swatch}${escHtml(v.title || v.value || '—')}${stock}</span>`;
+}
+
+function buildOptionsHtml(options) {
+  return options.filter(Boolean).map((opt) => {
+    const flags = [opt.required ? 'obligatoria' : '', opt.multi ? 'múltiple' : '']
+      .filter(Boolean).map((f) => `<span class="attrs-role">${f}</span>`).join(' ');
+    const values = (opt.values || []).filter(Boolean);
+    const productValues = values.filter((v) => v.product);
+    const otherValues = values.filter((v) => !v.product);
+
+    const table = productValues.length === 0 ? '' : `
+      <div class="pmd-table-wrap">
+        <table class="pmd-attrs-table">
+          <thead><tr><th>SKU</th><th>Nombre</th><th class="col-narrow">Cant.</th><th class="col-narrow">Defecto</th><th class="col-narrow">Stock</th><th>Precio</th></tr></thead>
+          <tbody>${productValues.map((v) => `
+            <tr>
+              <td class="pmd-attr-name"><span class="product-sku">${escHtml(v.product.sku || '—')}</span></td>
+              <td class="pmd-attr-value col-wide">${escHtml(v.product.name || v.title || '—')}</td>
+              <td class="pmd-attr-value col-narrow">${v.quantity != null ? escHtml(String(v.quantity)) : '—'}</td>
+              <td class="pmd-attr-value col-narrow">${v.isDefault ? 'Sí' : ''}</td>
+              <td class="pmd-attr-value col-narrow">${stockHtml(v.product.inStock != null ? v.product.inStock : v.inStock)}</td>
+              <td class="pmd-attr-value col-price">${escHtml(formatProductPrice(v.product))}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    const chips = otherValues.length === 0 ? '' : `<div class="opt-chips">${otherValues.map(buildOptionValueChip).join('')}</div>`;
+
+    return `
+      <details class="pmd-option">
+        <summary class="pmd-option-title">
+          <svg class="summary-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          ${escHtml(opt.title || opt.id || 'Opción')} ${flags}
+          <span class="tab-pill">${values.length}</span>
+        </summary>
+        ${table}${chips}
+      </details>`;
+  }).join('');
+}
+
+// A configurable has option values that are not products (swatch / configuration values)
+function isConfigurableOptions(options) {
+  return options.some((o) => o && (o.values || []).some((v) => v && !v.product));
+}
+
+function renderVariants(state) {
+  const body = $('pmd-variants-body');
+  if (!body) return;
+  $('pmd-variants-count').textContent = state.rows.length + (state.cursor ? '+' : '');
+
+  const rows = state.rows.map((v) => {
+    const sel = (v.selections || []).map((id) => (state.labels.has(id)
+      ? `<span class="opt-chip">${escHtml(state.labels.get(id))}</span>`
+      : `<span class="opt-chip opt-chip-raw" title="Sin coincidencia en las opciones">${escHtml(id)}</span>`)).join('');
+    const p = v.product || {};
+    return `
+      <tr>
+        <td class="pmd-attr-name"><span class="product-sku">${escHtml(p.sku || '—')}</span></td>
+        <td class="pmd-attr-value col-wide">${escHtml(p.name || '—')}</td>
+        <td class="pmd-attr-value"><div class="opt-chips">${sel}</div></td>
+        <td class="pmd-attr-value col-narrow">${stockHtml(p.inStock)}</td>
+        <td class="pmd-attr-value col-price">${escHtml(formatProductPrice(p))}</td>
+      </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    ${state.error ? `<p class="pmd-empty">${escHtml(state.error)}</p>` : ''}
+    ${state.rows.length === 0 && !state.error && !state.loading ? '<p class="pmd-empty">Sin variantes.</p>' : ''}
+    ${state.rows.length === 0 ? '' : `
+      <div class="pmd-table-wrap">
+        <table class="pmd-attrs-table">
+          <thead><tr><th>SKU</th><th>Nombre</th><th>Selecciones</th><th class="col-narrow">Stock</th><th>Precio</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`}
+    ${state.loading ? '<p class="pmd-empty">Cargando…</p>' : ''}
+    ${state.cursor && !state.loading ? '<button id="pmd-variants-more" class="btn btn-secondary btn-sm" style="margin-top:10px">Cargar más variantes</button>' : ''}
   `;
+
+  const more = $('pmd-variants-more');
+  if (more) more.addEventListener('click', () => loadVariants(state));
+}
+
+async function loadVariants(state) {
+  state.loading = true;
+  state.error = null;
+  renderVariants(state);
+
+  const variables = { sku: state.sku, pageSize: VARIANTS_PAGE_SIZE };
+  if (state.cursor) variables.cursor = state.cursor;
+  const page = state.queries.length;
 
   let data;
   try {
-    data = await graphqlFetch(PRODUCT_ASSOCIATED_QUERY, variables);
+    data = await graphqlFetch(PRODUCT_VARIANTS_QUERY, variables);
   } catch (err) {
-    if (variantsRequestSku !== sku) return;
-    box.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>${queryDetails}`;
+    if (variantsState !== state) return;
+    state.loading = false;
+    state.error = `Error de red o del servidor: ${err.message}`;
+    state.queries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables) });
+    renderVariants(state);
+    renderModalQueries(state.queries);
     return;
   }
-  if (variantsRequestSku !== sku) return;
+  if (variantsState !== state) return;
+
+  state.loading = false;
+  state.queries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables, data) });
+
+  const result = data?.data?.variants;
+  if (data.errors && data.errors.length > 0 && !result) {
+    state.error = `Error GraphQL: ${data.errors.map((e) => e.message).join('\n')}`;
+  } else if (result) {
+    state.rows.push(...(result.variants || []).filter(Boolean));
+    state.cursor = result.cursor || null;
+  }
+  renderVariants(state);
+  renderModalQueries(state.queries);
+}
+
+async function loadAssociatedProducts(sku) {
+  variantsRequestSku = sku;
+  const state = { sku, labels: new Map(), rows: [], cursor: null, loading: false, error: null, queries: [] };
+  variantsState = state;
+
+  const box = $('pmd-options-body');
+  const variables = { skus: [sku] };
+  const title = 'Opciones';
+
+  let data;
+  try {
+    data = await graphqlFetch(PRODUCT_OPTIONS_QUERY, variables);
+  } catch (err) {
+    if (variantsState !== state) return;
+    box.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>`;
+    renderModalQueries([{ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables) }]);
+    return;
+  }
+  if (variantsState !== state) return;
+
+  state.queries.push({ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables, data) });
+  renderModalQueries(state.queries);
 
   if (data.errors && data.errors.length > 0) {
-    box.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>${queryDetails}`;
+    box.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>`;
     return;
   }
 
-  // Collect the simple products from every option value, deduplicated by SKU
-  const bySku = new Map();
-  (data?.data?.products || []).filter(Boolean).forEach((p) => {
-    (p.options || []).forEach((opt) => {
-      (opt.values || []).forEach((val) => {
-        if (val && val.product && val.product.sku) bySku.set(val.product.sku, val.product);
+  const options = ((data?.data?.products || []).filter(Boolean)[0] || {}).options || [];
+  if (options.length === 0) {
+    box.innerHTML = '<p class="pmd-empty">Sin opciones.</p>';
+    return;
+  }
+
+  box.innerHTML = buildOptionsHtml(options);
+
+  if (isConfigurableOptions(options)) {
+    options.filter(Boolean).forEach((opt) => {
+      (opt.values || []).filter(Boolean).forEach((v) => {
+        if (v.id) state.labels.set(v.id, `${opt.title || opt.id}: ${v.title || v.value || v.id}`);
       });
     });
-  });
-
-  if (bySku.size === 0) {
-    box.innerHTML = `<p class="pmd-empty">Sin productos simples asociados.</p>${queryDetails}`;
-    return;
+    $('pmd-variants-section').style.display = '';
+    loadVariants(state);
   }
-
-  const rows = [...bySku.values()].map((p) => `
-    <tr>
-      <td class="pmd-attr-name"><span class="product-sku">${escHtml(p.sku)}</span></td>
-      <td class="pmd-attr-value">${escHtml(p.name || '—')}</td>
-    </tr>
-  `).join('');
-
-  box.innerHTML = `
-    <div class="pmd-table-wrap">
-      <table class="pmd-attrs-table">
-        <thead><tr><th>SKU</th><th>Nombre</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-    ${queryDetails}
-  `;
 }
 
 // ===== PRODUCT DETAIL MODAL =====
@@ -3780,12 +3969,14 @@ function openProductModal(pv) {
     loadAssociatedProducts(pv.sku);
   } else {
     variantsRequestSku = null;
+    variantsState = null;
   }
 }
 
 function closeProductModal() {
   currentModalPv = null;
   variantsRequestSku = null;
+  variantsState = null;
   $('product-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
 }
@@ -3830,9 +4021,14 @@ function buildProductModalContent(pv) {
   const variantsSection = pv.__typename === 'ComplexProductView'
     ? `
       <div class="pmd-section">
-        <div class="pmd-section-title">Productos simples asociados</div>
-        <div id="pmd-variants-body"><p class="pmd-empty">Cargando…</p></div>
+        <div class="pmd-section-title">Opciones</div>
+        <div id="pmd-options-body"><p class="pmd-empty">Cargando…</p></div>
       </div>
+      <div class="pmd-section" id="pmd-variants-section" style="display:none">
+        <div class="pmd-section-title">Variantes <span id="pmd-variants-count" class="tab-pill"></span></div>
+        <div id="pmd-variants-body"></div>
+      </div>
+      <div id="pmd-query-body"></div>
     `
     : '';
 
