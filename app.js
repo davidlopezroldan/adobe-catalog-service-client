@@ -247,14 +247,30 @@ function closeSettingsModal() {
 
 const CONFIG_EXPORT_VERSION = 2;
 
-function exportConfig() {
-  // Ask for the file name before exporting
-  const defaultName = `catalog-service-config-${new Date().toISOString().slice(0, 10)}`;
-  let name = window.prompt('Nombre del archivo de configuración:', defaultName);
-  if (name === null) return; // cancelled
+// Asks for a file name and downloads `payload` as a JSON file.
+// Returns the final file name, or null when the user cancels.
+function downloadJson(message, defaultName, payload) {
+  let name = window.prompt(message, defaultName);
+  if (name === null) return null; // cancelled
   name = name.trim();
   if (!name) name = defaultName;
   if (!name.toLowerCase().endsWith('.json')) name += '.json';
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  return name;
+}
+
+function exportConfig() {
+  const defaultName = `catalog-service-config-${new Date().toISOString().slice(0, 10)}`;
 
   const payload = {
     app: 'adobe-catalog-service-panel',
@@ -269,17 +285,8 @@ function exportConfig() {
     },
   };
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  showConfigIoMessage('success', `Configuración exportada como "${name}".`);
+  const name = downloadJson('Nombre del archivo de configuración:', defaultName, payload);
+  if (name) showConfigIoMessage('success', `Configuración exportada como "${name}".`);
 }
 
 function handleImportFile(e) {
@@ -399,6 +406,16 @@ function showConfigIoMessage(type, msg) {
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// "Cliente Ñandú" -> "cliente-nandu", for file names
+function slugify(str) {
+  return String(str)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'project';
 }
 
 // Synchronous SHA-1 (hex). Commerce's Magento-Customer-Group header is sha1(<customer_group_id>);
@@ -611,6 +628,7 @@ function renderProjectSelect() {
 
   const hasProject = !!activeProject;
   $('btn-edit-project').disabled = !hasProject;
+  $('btn-export-project').disabled = !hasProject;
   $('btn-delete-project').disabled = !hasProject;
   $('btn-add-env').disabled = !hasProject;
   $('btn-open-ws-manager').disabled = !hasProject;
@@ -684,9 +702,218 @@ function initProjectManager() {
     const project = projects.find((p) => p.id === $('project-select').value) || null;
     selectProject(project);
   });
-  $('btn-add-project').addEventListener('click', addProject);
-  $('btn-edit-project').addEventListener('click', renameProject);
-  $('btn-delete-project').addEventListener('click', deleteProject);
+  $('import-project-file').addEventListener('change', handleImportProjectFile);
+
+  initProjectMenu();
+}
+
+// ===== PROJECT MENU (hamburger) =====
+
+function isProjectMenuOpen() {
+  return !$('project-menu').hidden;
+}
+
+function openProjectMenu() {
+  $('project-menu').hidden = false;
+  $('btn-project-menu').setAttribute('aria-expanded', 'true');
+  const first = $('project-menu').querySelector('.project-menu-item:not(:disabled)');
+  if (first) first.focus();
+}
+
+function closeProjectMenu(returnFocus = false) {
+  if (!isProjectMenuOpen()) return;
+  $('project-menu').hidden = true;
+  $('btn-project-menu').setAttribute('aria-expanded', 'false');
+  if (returnFocus) $('btn-project-menu').focus();
+}
+
+function initProjectMenu() {
+  const toggle = $('btn-project-menu');
+  const menu = $('project-menu');
+
+  toggle.addEventListener('click', () => {
+    if (isProjectMenuOpen()) closeProjectMenu();
+    else openProjectMenu();
+  });
+  toggle.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' && !isProjectMenuOpen()) {
+      e.preventDefault();
+      openProjectMenu();
+    }
+  });
+
+  // The menu closes first because prompt/confirm/file dialogs are blocking
+  const actions = {
+    'btn-add-project': addProject,
+    'btn-edit-project': renameProject,
+    'btn-export-project': exportProject,
+    'btn-import-project': () => $('import-project-file').click(),
+    'btn-delete-project': deleteProject,
+  };
+  Object.keys(actions).forEach((id) => {
+    $(id).addEventListener('click', () => {
+      closeProjectMenu(true);
+      actions[id]();
+    });
+  });
+
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeProjectMenu(true);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      closeProjectMenu(true);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const items = [...menu.querySelectorAll('.project-menu-item:not(:disabled)')];
+      if (items.length === 0) return;
+      const index = items.indexOf(document.activeElement);
+      const next = e.key === 'ArrowDown'
+        ? (index + 1) % items.length
+        : (index - 1 + items.length) % items.length;
+      items[next].focus();
+    }
+  });
+
+  // Click outside closes it
+  document.addEventListener('click', (e) => {
+    if (isProjectMenuOpen() && !e.target.closest('.project-menu-wrap')) closeProjectMenu();
+  });
+}
+
+// ===== PROJECT EXPORT / IMPORT =====
+
+const PROJECT_EXPORT_VERSION = 1;
+
+// Exports the active project with everything under it (environments, customer groups, websites, stores, store views)
+function exportProject() {
+  if (!activeProject) return;
+
+  const defaultName = `catalog-service-project-${slugify(activeProject.name)}-${new Date().toISOString().slice(0, 10)}`;
+  const payload = {
+    app: 'adobe-catalog-service-panel',
+    type: 'projects',
+    version: PROJECT_EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: { projects: [activeProject] },
+  };
+
+  downloadJson('Nombre del archivo del proyecto:', defaultName, payload);
+}
+
+function handleImportProjectFile(e) {
+  const file = e.target.files && e.target.files[0];
+  // Allow re-importing the same file later
+  e.target.value = '';
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch {
+      window.alert('El archivo no es un JSON válido.');
+      return;
+    }
+    importProjects(parsed);
+  };
+  reader.onerror = () => window.alert('No se pudo leer el archivo.');
+  reader.readAsText(file);
+}
+
+const projectNameTaken = (name) => projects.some((p) => p.name.toLowerCase() === name.toLowerCase());
+
+// "Cliente A" -> "Cliente A (2)", "Cliente A (2)" -> "Cliente A (3)"
+function nextProjectName(name) {
+  const base = name.replace(/\s*\(\d+\)$/, '');
+  let n = 2;
+  while (projectNameTaken(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+}
+
+// Imported entities get fresh internal ids so they never collide with the existing ones
+function withNewIds(project) {
+  return {
+    id: newId(),
+    name: project.name,
+    environments: project.environments.map((env) => ({
+      ...env,
+      id: newId(),
+      customerGroups: env.customerGroups.map((g) => ({ ...g, id: newId() })),
+    })),
+    websites: project.websites,
+  };
+}
+
+function countProjectEntities(project) {
+  const sites = Object.values(project.websites);
+  const stores = sites.flatMap((w) => Object.values(w.stores));
+  return {
+    environments: project.environments.length,
+    customerGroups: project.environments.reduce((n, e) => n + e.customerGroups.length, 0),
+    websites: sites.length,
+    stores: stores.length,
+    storeViews: stores.reduce((n, s) => n + s.storeViews.length, 0),
+  };
+}
+
+// Adds the projects of a project file (or of a configuration file) without touching the existing ones
+function importProjects(parsed) {
+  const data = parsed && parsed.data ? parsed.data : parsed;
+  const incoming = data && Array.isArray(data.projects) ? data.projects : [];
+  if (incoming.length === 0) {
+    window.alert('El archivo no contiene proyectos. Los archivos de configuración anteriores a los proyectos se importan desde Ajustes → Importar configuración.');
+    return;
+  }
+
+  const imported = [];
+  let skipped = 0;
+
+  incoming.forEach((raw) => {
+    if (!raw || typeof raw !== 'object') {
+      skipped++;
+      return;
+    }
+    const project = withNewIds(normalizeProject(raw));
+
+    // Never overwrite: a repeated name asks for another one
+    let name = project.name;
+    while (!name || projectNameTaken(name)) {
+      const answer = window.prompt(
+        name
+          ? `Ya existe un proyecto llamado "${name}".\nNombre para el proyecto importado (Cancelar para omitirlo):`
+          : 'El nombre no puede estar vacío.\nNombre para el proyecto importado (Cancelar para omitirlo):',
+        name ? nextProjectName(name) : 'Proyecto importado'
+      );
+      if (answer === null) {
+        name = null;
+        break;
+      }
+      name = answer.trim();
+    }
+    if (name === null) {
+      skipped++;
+      return;
+    }
+
+    project.name = name;
+    projects.push(project);
+    imported.push(project);
+  });
+
+  if (imported.length === 0) return;
+
+  saveProjects();
+  selectProject(imported[0]);
+
+  const lines = imported.map((p) => {
+    const c = countProjectEntities(p);
+    return `• "${p.name}": ${c.environments} entorno(s), ${c.customerGroups} customer group(s), ${c.websites} website(s), ${c.stores} store(s) y ${c.storeViews} store view(s)`;
+  });
+  const title = imported.length === 1 ? 'Proyecto importado' : 'Proyectos importados';
+  window.alert(`${title}:\n${lines.join('\n')}${skipped ? `\n\n${skipped} proyecto(s) omitido(s).` : ''}`);
 }
 
 // ===== ENVIRONMENT MANAGEMENT =====

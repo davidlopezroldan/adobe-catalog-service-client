@@ -6,7 +6,8 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 
 ## Características
 
-- **Proyectos:** la configuración se organiza en proyectos (selector en la parte superior del panel lateral, con botones para crear, renombrar y eliminar). Un proyecto agrupa sus **entornos** y su jerarquía **Website → Store → Store View**; todas las entidades dependen de su padre y los códigos son únicos entre hermanos. Al recargar la página se vuelve al último proyecto utilizado.
+- **Proyectos:** la configuración se organiza en proyectos (selector en la parte superior del panel lateral y, a su lado, un menú de tres rayas ☰ con las opciones **Nuevo proyecto**, **Renombrar proyecto**, **Exportar proyecto**, **Importar proyecto** y **Eliminar proyecto**). Un proyecto agrupa sus **entornos** y su jerarquía **Website → Store → Store View**; todas las entidades dependen de su padre y los códigos son únicos entre hermanos. Al recargar la página se vuelve al último proyecto utilizado.
+- **Exportar / importar proyectos** desde el menú ☰: *Exportar proyecto* descarga un JSON con el proyecto activo y todo lo que cuelga de él (entornos con su API key, customer groups, websites, stores y store views); no incluye ajustes, favoritos ni el orden guardado. *Importar proyecto* añade los proyectos del archivo sin tocar los existentes y con identificadores internos nuevos; si el nombre ya existe, pide otro (sugiere `Nombre (2)`) y, al cancelar, omite ese proyecto. Acepta tanto archivos de proyecto como archivos de "Exportar configuración" (solo toma sus proyectos). Los archivos exportados con la API key incluida deben compartirse con cuidado si usas claves propias.
 - **Gestión de entornos (Environment IDs)** dentro de cada proyecto, persistidos en `localStorage`. Cada entorno tiene un label, un tipo (Staging o Producción) que determina automáticamente el endpoint usado y una **`x-api-key` opcional** (si se deja vacía se usa `search_gql`). Los entornos se pueden editar (label, ID, tipo y API key) con el icono de lápiz:
   - Staging: `https://catalog-service-sandbox.adobe.io/graphql`
   - Producción: `https://catalog-service.adobe.io/graphql`
@@ -46,7 +47,7 @@ Cada llamada incluye:
 
 Al ser una aplicación estática, basta con abrir `index.html` en el navegador.
 
-1. Crea un **proyecto** (botón `+` junto al selector de proyecto).
+1. Crea un **proyecto** (menú ☰ junto al selector de proyecto → *Nuevo proyecto*), o importa uno ya preparado con *Importar proyecto*.
 2. Añade un entorno con su `Magento-Environment-Id`, su tipo (Staging / Producción) y, opcionalmente, su `x-api-key`.
 3. Crea la jerarquía website → store → store view (botón **Gestionar** de la sección Website / Store / View) y selecciónala en el panel lateral.
 4. Si lo necesitas, define los customer groups del entorno desde **Gestionar** en la sección Customer Group y selecciona el que quieras enviar.
@@ -69,6 +70,8 @@ media/icons/    Favicons e iconos de la aplicación
 ## Changelog
 
 ### 2026-10-30
+- Group the project actions in a hamburger menu next to the project selector
+- Add export and import of projects with their environments, customer groups, websites, stores and store views
 - Show the headers actually sent in the "Ver consulta GraphQL enviada" sections, above the query and variables
 - Add projects grouping environments and a Website > Store > Store View hierarchy, restoring the last used project on reload
 - Add Store level between websites and store views, with optional label, sent as Magento-Store-Code
