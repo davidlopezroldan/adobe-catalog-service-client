@@ -5,11 +5,11 @@ const ENDPOINTS = {
   production: 'https://catalog-service.adobe.io/graphql',
 };
 
-const API_KEY = 'search_gql';
+// x-api-key used when the environment does not define its own
+const DEFAULT_API_KEY = 'search_gql';
 
-// Default websites/store views loaded on first run
-const DEFAULT_WEBSITE_STORE_MAP = {};
-
+const LS_PROJECTS_KEY = 'catalogService.projects';
+// Legacy keys (before projects): only read once to migrate them into a default project
 const LS_KEY = 'catalogService.environments';
 const LS_WS_KEY = 'catalogService.websites';
 const LS_SETTINGS_KEY = 'catalogService.settings';
@@ -24,21 +24,32 @@ const DEFAULT_SETTINGS = {
 
 // Last used selections/values, persisted so the panel restores them on reload
 const DEFAULT_LAST_USED = {
+  projectId: null,       // activeProject.id
   environmentId: null,   // activeEnvironment.id
   website: null,         // website code
+  store: null,           // store code
   storeView: null,       // store view code
+  customerGroup: '',     // customer group id (internal) of the active environment, '' = none
   productPhrase: '',     // Products tab phrase
   productSkus: '',       // Products by SKU tab SKUs
   categoryProductId: '', // Category Products tab category id
 };
 
 // ===== STATE =====
+
+// projects: [{ id, name, environments: Environment[], websites: Websites }]
+let projects = [];
+let activeProject = null;
+
+// `environments` and `websites` always point at the active project's data
+// environments: [{ id, label, environmentId, type, apiKey, customerGroups: [{ id, groupId, hash, label }] }]
 let environments = [];
 let activeEnvironment = null;
 
-// websites: { [code]: { label: string, storeViews: string[] } }
+// websites: { [code]: { label: string, stores: { [code]: { label: string, storeViews: string[] } } } }
 let websites = {};
 let selectedWebsiteCode = null; // for the manager modal
+let selectedStoreCode = null;   // for the manager modal
 
 // Application settings
 let settings = { ...DEFAULT_SETTINGS };
@@ -234,7 +245,7 @@ function closeSettingsModal() {
 
 // ===== CONFIG EXPORT / IMPORT =====
 
-const CONFIG_EXPORT_VERSION = 1;
+const CONFIG_EXPORT_VERSION = 2;
 
 function exportConfig() {
   // Ask for the file name before exporting
@@ -250,8 +261,7 @@ function exportConfig() {
     version: CONFIG_EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
     data: {
-      environments: safeParse(localStorage.getItem(LS_KEY), []),
-      websites: safeParse(localStorage.getItem(LS_WS_KEY), {}),
+      projects: safeParse(localStorage.getItem(LS_PROJECTS_KEY), []),
       settings: safeParse(localStorage.getItem(LS_SETTINGS_KEY), DEFAULT_SETTINGS),
       lastUsed: safeParse(localStorage.getItem(LS_LAST_USED_KEY), DEFAULT_LAST_USED),
       favoriteAttributes: safeParse(localStorage.getItem(LS_FAV_ATTRS_KEY), []),
@@ -292,7 +302,8 @@ function handleImportFile(e) {
 }
 
 function applyImportedConfig(parsed) {
-  // Accept either the wrapped format ({ data: {...} }) or a raw {environments,websites,settings}
+  // Accept either the wrapped format ({ data: {...} }) or a raw {projects,settings,...}.
+  // Files from before projects ({ environments, websites }) are migrated into a default project.
   const data = parsed && parsed.data ? parsed.data : parsed;
 
   if (!data || typeof data !== 'object') {
@@ -300,22 +311,26 @@ function applyImportedConfig(parsed) {
     return;
   }
 
-  const hasAny = ['environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes', 'productSort'].some((k) => k in data);
+  const hasAny = ['projects', 'environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes', 'productSort'].some((k) => k in data);
   if (!hasAny) {
     showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
     return;
   }
 
-  if (!window.confirm('Importar esta configuración reemplazará tus entornos, websites/store views y ajustes actuales. ¿Continuar?')) {
+  if (!window.confirm('Importar esta configuración reemplazará tus proyectos (entornos, websites, stores y store views) y ajustes actuales. ¿Continuar?')) {
     return;
   }
 
   // Persist each section if present
-  if ('environments' in data && Array.isArray(data.environments)) {
-    localStorage.setItem(LS_KEY, JSON.stringify(data.environments));
-  }
-  if ('websites' in data && data.websites && typeof data.websites === 'object') {
-    localStorage.setItem(LS_WS_KEY, JSON.stringify(data.websites));
+  let legacyProject = null;
+  if (Array.isArray(data.projects)) {
+    localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(data.projects.map(normalizeProject)));
+  } else if ('environments' in data || 'websites' in data) {
+    legacyProject = migrateLegacyToProject(
+      Array.isArray(data.environments) ? data.environments : [],
+      data.websites && typeof data.websites === 'object' ? data.websites : {}
+    );
+    localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify([legacyProject]));
   }
   if ('settings' in data && data.settings && typeof data.settings === 'object') {
     localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(data.settings));
@@ -333,23 +348,29 @@ function applyImportedConfig(parsed) {
   // Reload in-memory state from storage
   loadSettings();
   loadLastUsed();
+  if (legacyProject) {
+    lastUsed.projectId = null;
+    adoptLegacyLastUsed(legacyProject);
+  }
   loadFavoriteAttributes();
   loadProductSort();
   refreshAttributeViews();
-  loadEnvironments();
-  loadWebsites();
+  loadProjects();
 
   // Refresh the whole UI to reflect the imported config
-  activeEnvironment = null;
+  resetEnvForm();
   selectedWebsiteCode = null;
-  renderEnvironments();
+  selectedStoreCode = null;
   // Clear current DOM selections so the imported lastUsed takes effect
   $('website-select').value = '';
+  $('store-select').value = '';
   $('store-view-select').value = '';
+  $('customer-group-select').innerHTML = '';
+  selectInitialProject();
+  renderEnvironments();
   populateSidebarWebsites();
   fillSettingsForm();
-  productSortInvalid = false;
-  updateSortButton();
+  resetFacetContext();
 
   // Restore last-used input values
   $('product-phrase').value = lastUsed.productPhrase || '';
@@ -374,40 +395,298 @@ function showConfigIoMessage(type, msg) {
   el.textContent = msg;
 }
 
-// ===== LOCAL STORAGE =====
+// ===== UTILS =====
 
-function loadEnvironments() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    environments = raw ? JSON.parse(raw) : [];
-  } catch {
-    environments = [];
-  }
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function saveEnvironments() {
-  localStorage.setItem(LS_KEY, JSON.stringify(environments));
-}
+// Synchronous SHA-1 (hex). Commerce's Magento-Customer-Group header is sha1(<customer_group_id>);
+// crypto.subtle is async and only available in secure contexts, so it is not used here.
+function sha1Hex(str) {
+  const bytes = new TextEncoder().encode(str);
+  const padded = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  const bitLength = bytes.length * 8;
+  view.setUint32(padded.length - 8, Math.floor(bitLength / 0x100000000));
+  view.setUint32(padded.length - 4, bitLength >>> 0);
 
-// ===== WEBSITES LOCAL STORAGE =====
+  const rotl = (n, s) => (n << s) | (n >>> (32 - s));
+  const w = new Uint32Array(80);
+  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
 
-function loadWebsites() {
-  try {
-    const raw = localStorage.getItem(LS_WS_KEY);
-    if (raw) {
-      websites = JSON.parse(raw);
-    } else {
-      // First run: load defaults
-      websites = JSON.parse(JSON.stringify(DEFAULT_WEBSITE_STORE_MAP));
-      saveWebsites();
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
+    for (let i = 16; i < 80; i++) w[i] = rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f, k;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+      else { f = b ^ c ^ d; k = 0xca62c1d6; }
+      const temp = (rotl(a, 5) + f + e + k + w[i]) >>> 0;
+      e = d;
+      d = c;
+      c = rotl(b, 30) >>> 0;
+      b = a;
+      a = temp;
     }
+    h0 = (h0 + a) >>> 0;
+    h1 = (h1 + b) >>> 0;
+    h2 = (h2 + c) >>> 0;
+    h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0;
+  }
+
+  return [h0, h1, h2, h3, h4].map((h) => h.toString(16).padStart(8, '0')).join('');
+}
+
+const byName = (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+
+// ===== PROJECTS LOCAL STORAGE =====
+
+function normalizeCustomerGroups(raw) {
+  if (!Array.isArray(raw)) return [];
+  const groups = [];
+  raw.forEach((g) => {
+    if (!g || typeof g !== 'object') return;
+    const groupId = g.groupId != null ? String(g.groupId).trim() : '';
+    const hash = /^\d+$/.test(groupId) ? sha1Hex(groupId) : String(g.hash || '').trim();
+    if (!hash) return;
+    groups.push({
+      id: typeof g.id === 'string' && g.id ? g.id : newId(),
+      groupId: /^\d+$/.test(groupId) ? groupId : '',
+      hash,
+      label: typeof g.label === 'string' ? g.label : '',
+    });
+  });
+  return groups;
+}
+
+function normalizeEnvironments(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((e) => e && typeof e === 'object')
+    .map((e) => ({
+      id: e.id != null && e.id !== '' ? String(e.id) : newId(),
+      label: String(e.label || ''),
+      environmentId: String(e.environmentId || ''),
+      type: e.type === 'production' ? 'production' : 'staging',
+      apiKey: typeof e.apiKey === 'string' ? e.apiKey.trim() : '',
+      customerGroups: normalizeCustomerGroups(e.customerGroups),
+    }));
+}
+
+function normalizeWebsites(raw) {
+  const result = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+  const cleanViews = (list) => (Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v) : []);
+
+  Object.keys(raw).forEach((code) => {
+    const ws = raw[code] && typeof raw[code] === 'object' ? raw[code] : {};
+    const website = { label: typeof ws.label === 'string' ? ws.label : '', stores: {} };
+
+    if (ws.stores && typeof ws.stores === 'object' && !Array.isArray(ws.stores)) {
+      Object.keys(ws.stores).forEach((storeCode) => {
+        const st = ws.stores[storeCode] && typeof ws.stores[storeCode] === 'object' ? ws.stores[storeCode] : {};
+        website.stores[storeCode] = {
+          label: typeof st.label === 'string' ? st.label : '',
+          storeViews: cleanViews(st.storeViews),
+        };
+      });
+    } else if (Array.isArray(ws.storeViews)) {
+      // Legacy shape (no store level): one store with the website's code, which is
+      // what used to be sent as Magento-Store-Code
+      website.stores[code] = { label: '', storeViews: cleanViews(ws.storeViews) };
+    }
+
+    result[code] = website;
+  });
+  return result;
+}
+
+function normalizeProject(raw) {
+  const p = raw && typeof raw === 'object' ? raw : {};
+  return {
+    id: p.id != null && p.id !== '' ? String(p.id) : newId(),
+    name: String(p.name || 'Proyecto'),
+    environments: normalizeEnvironments(p.environments),
+    websites: normalizeWebsites(p.websites),
+  };
+}
+
+// Builds the default project out of the pre-projects environments and websites
+function migrateLegacyToProject(legacyEnvironments, legacyWebsites) {
+  return normalizeProject({
+    id: newId(),
+    name: 'Proyecto por defecto',
+    environments: legacyEnvironments,
+    websites: legacyWebsites,
+  });
+}
+
+// lastUsed saved before projects/stores existed: attach it to the migrated project
+function adoptLegacyLastUsed(project) {
+  if (!lastUsed.projectId) lastUsed.projectId = project.id;
+  if (!lastUsed.store && lastUsed.website) lastUsed.store = lastUsed.website;
+  saveLastUsed();
+}
+
+function loadProjects() {
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(LS_PROJECTS_KEY));
   } catch {
-    websites = JSON.parse(JSON.stringify(DEFAULT_WEBSITE_STORE_MAP));
+    stored = null;
+  }
+
+  if (Array.isArray(stored)) {
+    projects = stored.map(normalizeProject);
+    return;
+  }
+
+  // First run with projects: migrate legacy environments/websites if there are any
+  const legacyEnvironments = safeParse(localStorage.getItem(LS_KEY), []);
+  const legacyWebsites = safeParse(localStorage.getItem(LS_WS_KEY), {});
+  const hasLegacy = (Array.isArray(legacyEnvironments) && legacyEnvironments.length > 0)
+    || (legacyWebsites && typeof legacyWebsites === 'object' && Object.keys(legacyWebsites).length > 0);
+
+  projects = [];
+  if (hasLegacy) {
+    const project = migrateLegacyToProject(legacyEnvironments, legacyWebsites);
+    projects.push(project);
+    saveProjects();
+    adoptLegacyLastUsed(project);
   }
 }
 
-function saveWebsites() {
-  localStorage.setItem(LS_WS_KEY, JSON.stringify(websites));
+function saveProjects() {
+  localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(projects));
+}
+
+// ===== PROJECT MANAGEMENT =====
+
+function setActiveProject(project) {
+  activeProject = project || null;
+  environments = activeProject ? activeProject.environments : [];
+  websites = activeProject ? activeProject.websites : {};
+  activeEnvironment = null;
+  selectedWebsiteCode = null;
+  selectedStoreCode = null;
+  if (editingEnvId) resetEnvForm();
+}
+
+// Restores the last used project (or the first one, alphabetically) as the active one
+function selectInitialProject() {
+  const remembered = lastUsed.projectId ? projects.find((p) => p.id === lastUsed.projectId) : null;
+  const project = remembered || [...projects].sort(byName)[0] || null;
+  setActiveProject(project);
+  const id = project ? project.id : null;
+  if (lastUsed.projectId !== id) setLastUsed('projectId', id);
+  renderProjectSelect();
+}
+
+function renderProjectSelect() {
+  const select = $('project-select');
+  select.innerHTML = '';
+
+  if (projects.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '-- Sin proyectos --';
+    select.appendChild(opt);
+  } else {
+    [...projects].sort(byName).forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    });
+    if (activeProject) select.value = activeProject.id;
+  }
+
+  const hasProject = !!activeProject;
+  $('btn-edit-project').disabled = !hasProject;
+  $('btn-delete-project').disabled = !hasProject;
+  $('btn-add-env').disabled = !hasProject;
+  $('btn-open-ws-manager').disabled = !hasProject;
+}
+
+// Switches to another project and reloads everything that depends on it
+function selectProject(project) {
+  setActiveProject(project);
+  setLastUsed('projectId', project ? project.id : null);
+  renderProjectSelect();
+  renderEnvironments();
+  populateSidebarWebsites();
+  resetFacetContext();
+}
+
+// Asks for a project name; returns null when cancelled, empty or duplicated
+function askProjectName(message, current = '') {
+  const name = (window.prompt(message, current) || '').trim();
+  if (!name || name === current) return null;
+  if (projects.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+    window.alert('Ya existe un proyecto con ese nombre.');
+    return null;
+  }
+  return name;
+}
+
+function addProject() {
+  const name = askProjectName('Nombre del nuevo proyecto:');
+  if (!name) return;
+  const project = { id: newId(), name, environments: [], websites: {} };
+  projects.push(project);
+  saveProjects();
+  selectProject(project);
+}
+
+function renameProject() {
+  if (!activeProject) return;
+  const name = askProjectName('Nuevo nombre del proyecto:', activeProject.name);
+  if (!name) return;
+  activeProject.name = name;
+  saveProjects();
+  renderProjectSelect();
+}
+
+function deleteProject() {
+  if (!activeProject) return;
+  const project = activeProject;
+  const wsCount = Object.keys(project.websites).length;
+  const detail = `${project.environments.length} entorno(s) y ${wsCount} website(s) con sus stores y store views`;
+  if (!window.confirm(`Se eliminará el proyecto "${project.name}" junto con ${detail}. ¿Continuar?`)) return;
+
+  // Drop the sorts saved for its environments
+  let sortChanged = false;
+  project.environments.forEach((env) => {
+    if (productSortByEnv[env.id]) {
+      delete productSortByEnv[env.id];
+      sortChanged = true;
+    }
+  });
+  if (sortChanged) saveProductSort();
+
+  projects = projects.filter((p) => p !== project);
+  saveProjects();
+  selectProject([...projects].sort(byName)[0] || null);
+}
+
+function initProjectManager() {
+  selectInitialProject();
+
+  $('project-select').addEventListener('change', () => {
+    const project = projects.find((p) => p.id === $('project-select').value) || null;
+    selectProject(project);
+  });
+  $('btn-add-project').addEventListener('click', addProject);
+  $('btn-edit-project').addEventListener('click', renameProject);
+  $('btn-delete-project').addEventListener('click', deleteProject);
 }
 
 // ===== ENVIRONMENT MANAGEMENT =====
@@ -420,6 +699,7 @@ function resetEnvForm() {
   $('new-env-label').value = '';
   $('new-env-id').value = '';
   $('new-env-type').value = 'staging';
+  $('new-env-api-key').value = '';
   $('env-add-form').classList.remove('visible');
   $('btn-add-env').textContent = '+ Añadir entorno';
   $('btn-save-env').textContent = 'Guardar entorno';
@@ -430,6 +710,7 @@ function startEditEnvironment(env) {
   $('new-env-label').value = env.label;
   $('new-env-id').value = env.environmentId;
   $('new-env-type').value = env.type === 'production' ? 'production' : 'staging';
+  $('new-env-api-key').value = env.apiKey || '';
   $('env-add-form').classList.add('visible');
   $('btn-add-env').textContent = '✕ Cancelar';
   $('btn-save-env').textContent = 'Guardar cambios';
@@ -444,7 +725,7 @@ function renderEnvironments() {
   list.innerHTML = '';
 
   if (environments.length === 0) {
-    list.innerHTML = '<div class="env-empty">No hay entornos guardados</div>';
+    list.innerHTML = `<div class="env-empty">${activeProject ? 'No hay entornos guardados' : 'Crea un proyecto para añadir entornos'}</div>`;
     activeEnvironment = null;
     updateActiveEnvDisplay();
     return;
@@ -500,7 +781,7 @@ function renderEnvironments() {
         saveProductSort();
       }
       environments.splice(index, 1);
-      saveEnvironments();
+      saveProjects();
       renderEnvironments();
       updateActiveEnvDisplay();
     });
@@ -557,10 +838,12 @@ function updateActiveEnvDisplay() {
     badge.textContent = '—';
     badge.className = 'env-badge staging';
   }
+
+  // Customer groups belong to the environment
+  populateCustomerGroupSelect();
 }
 
 function initEnvironmentManager() {
-  loadEnvironments();
   renderEnvironments();
 
   // Toggle add form
@@ -577,9 +860,11 @@ function initEnvironmentManager() {
 
   // Save new env
   $('btn-save-env').addEventListener('click', () => {
+    if (!activeProject) return;
     const label = $('new-env-label').value.trim();
     const envId = $('new-env-id').value.trim();
     const type = $('new-env-type').value;
+    const apiKey = $('new-env-api-key').value.trim();
 
     if (!label) {
       showFieldError($('new-env-label'), 'El label es requerido');
@@ -597,7 +882,10 @@ function initEnvironmentManager() {
         env.label = label;
         env.environmentId = envId;
         env.type = type;
-        saveEnvironments();
+        env.apiKey = apiKey;
+        saveProjects();
+        // Endpoint, Environment ID or API key may have changed
+        if (activeEnvironment === env) resetFacetContext();
       }
       resetEnvForm();
       renderEnvironments();
@@ -609,11 +897,15 @@ function initEnvironmentManager() {
       label,
       environmentId: envId,
       type,
+      apiKey,
+      customerGroups: [],
     };
 
     environments.push(newEnv);
-    saveEnvironments();
+    saveProjects();
     activeEnvironment = newEnv;
+    setLastUsed('environmentId', newEnv.id);
+    resetFacetContext();
 
     resetEnvForm();
 
@@ -621,7 +913,7 @@ function initEnvironmentManager() {
   });
 
   // Allow Enter key in form fields
-  [$('new-env-label'), $('new-env-id')].forEach((input) => {
+  [$('new-env-label'), $('new-env-id'), $('new-env-api-key')].forEach((input) => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('btn-save-env').click();
     });
@@ -645,21 +937,29 @@ function getEndpoint() {
   return ENDPOINTS.staging;
 }
 
-// ===== WEBSITE / STORE VIEW SELECTOR (sidebar) =====
+// ===== WEBSITE / STORE / STORE VIEW SELECTOR (sidebar) =====
 
 function initWebsiteSelector() {
   const websiteSelect = $('website-select');
+  const storeSelect = $('store-select');
   const storeViewSelect = $('store-view-select');
 
   websiteSelect.addEventListener('change', () => {
     setLastUsed('website', websiteSelect.value);
-    populateSidebarStoreViews(websiteSelect.value);
+    populateSidebarStores(websiteSelect.value);
+    resetFacetContext();
+  });
+
+  storeSelect.addEventListener('change', () => {
+    setLastUsed('store', storeSelect.value);
+    populateSidebarStoreViews(websiteSelect.value, storeSelect.value);
     resetFacetContext();
   });
 
   storeViewSelect.addEventListener('change', () => {
     setLastUsed('storeView', storeViewSelect.value);
     resetFacetContext();
+    renderActiveHeaders();
   });
 
   populateSidebarWebsites();
@@ -678,7 +978,7 @@ function populateSidebarWebsites() {
     opt.value = '';
     opt.textContent = '-- Sin websites --';
     websiteSelect.appendChild(opt);
-    populateSidebarStoreViews('');
+    populateSidebarStores('');
     return;
   }
 
@@ -698,24 +998,61 @@ function populateSidebarWebsites() {
   // Keep lastUsed in sync with the effective selection
   if (websiteSelect.value) setLastUsed('website', websiteSelect.value);
 
-  populateSidebarStoreViews(websiteSelect.value);
+  populateSidebarStores(websiteSelect.value);
 }
 
-function populateSidebarStoreViews(websiteCode) {
+function populateSidebarStores(websiteCode) {
+  const storeSelect = $('store-select');
+  // Prefer the current DOM value, fall back to the last-used store
+  const previousValue = storeSelect.value || lastUsed.store || '';
+  storeSelect.innerHTML = '';
+
+  const stores = websiteCode && websites[websiteCode] ? websites[websiteCode].stores : {};
+  const codes = Object.keys(stores).sort();
+
+  if (codes.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '-- Sin stores --';
+    storeSelect.appendChild(opt);
+    populateSidebarStoreViews(websiteCode, '');
+    return;
+  }
+
+  codes.forEach((code) => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = stores[code].label ? `${code} — ${stores[code].label}` : code;
+    storeSelect.appendChild(opt);
+  });
+
+  if (previousValue && stores[previousValue]) {
+    storeSelect.value = previousValue;
+  }
+
+  // Keep lastUsed in sync with the effective selection
+  if (storeSelect.value) setLastUsed('store', storeSelect.value);
+
+  populateSidebarStoreViews(websiteCode, storeSelect.value);
+}
+
+function populateSidebarStoreViews(websiteCode, storeCode) {
   const storeViewSelect = $('store-view-select');
   // Prefer the current DOM value, fall back to the last-used store view
   const previousValue = storeViewSelect.value || lastUsed.storeView || '';
   storeViewSelect.innerHTML = '';
 
-  const views = websiteCode && websites[websiteCode]
-    ? websites[websiteCode].storeViews
-    : [];
+  const store = websiteCode && storeCode && websites[websiteCode]
+    ? websites[websiteCode].stores[storeCode]
+    : null;
+  const views = store ? store.storeViews : [];
 
   if (views.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
     opt.textContent = '-- Sin store views --';
     storeViewSelect.appendChild(opt);
+    renderActiveHeaders();
     return;
   }
 
@@ -732,6 +1069,8 @@ function populateSidebarStoreViews(websiteCode) {
 
   // Keep lastUsed in sync with the effective selection
   if (storeViewSelect.value) setLastUsed('storeView', storeViewSelect.value);
+
+  renderActiveHeaders();
 }
 
 // ===== WEBSITE MANAGER MODAL =====
@@ -749,19 +1088,28 @@ function initWebsiteManager() {
   $('new-ws-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') addWebsite(); });
   $('new-ws-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') addWebsite(); });
 
+  // Add store
+  $('btn-save-st').addEventListener('click', addStore);
+  $('btn-cancel-st-edit').addEventListener('click', resetStoreForm);
+  $('new-st-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') addStore(); });
+  $('new-st-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') addStore(); });
+
   // Add store view
   $('btn-save-sv').addEventListener('click', addStoreView);
   $('new-sv-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') addStoreView(); });
 
   // Close with Escape
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeWsModal();
+    if (e.key === 'Escape' && $('ws-modal-overlay').style.display !== 'none') closeWsModal();
   });
 }
 
 function openWsModal() {
+  if (!activeProject) return;
   selectedWebsiteCode = null;
+  selectedStoreCode = null;
   resetWsForm();
+  resetStoreForm();
   renderWsManager();
   $('ws-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
@@ -771,7 +1119,9 @@ function closeWsModal() {
   $('ws-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
   // Refresh sidebar selectors in case something changed
+  const contextBefore = getContextKey();
   populateSidebarWebsites();
+  if (getContextKey() !== contextBefore) resetFacetContext();
 }
 
 // Website code being edited (null when adding a new website). The code is the key, so only the label is editable.
@@ -796,9 +1146,37 @@ function startEditWebsite(code) {
   $('new-ws-label').focus();
 }
 
+// Store code being edited inside the selected website (null when adding a new store)
+let editingStoreCode = null;
+
+function resetStoreForm() {
+  editingStoreCode = null;
+  $('new-st-code').value = '';
+  $('new-st-code').disabled = false;
+  $('new-st-label').value = '';
+  $('btn-save-st').textContent = 'Añadir store';
+  $('btn-cancel-st-edit').style.display = 'none';
+}
+
+function startEditStore(code) {
+  const store = websites[selectedWebsiteCode].stores[code];
+  editingStoreCode = code;
+  $('new-st-code').value = code;
+  $('new-st-code').disabled = true;
+  $('new-st-label').value = store.label || '';
+  $('btn-save-st').textContent = 'Guardar label';
+  $('btn-cancel-st-edit').style.display = 'block';
+  $('new-st-label').focus();
+}
+
 function renderWsManager() {
   renderWebsiteList();
+  renderStorePanel();
   renderStoreViewPanel();
+}
+
+function countStoreViews(website) {
+  return Object.values(website.stores).reduce((total, st) => total + st.storeViews.length, 0);
 }
 
 function renderWebsiteList() {
@@ -815,6 +1193,7 @@ function renderWebsiteList() {
 
   codes.forEach((code) => {
     const ws = websites[code];
+    const storeCount = Object.keys(ws.stores).length;
     const isSelected = code === selectedWebsiteCode;
     const item = document.createElement('div');
     item.className = 'ws-item' + (isSelected ? ' active' : '');
@@ -824,14 +1203,18 @@ function renderWebsiteList() {
         <div class="ws-item-code">${escHtml(code)}</div>
         ${ws.label ? `<div class="ws-item-label">${escHtml(ws.label)}</div>` : ''}
       </div>
-      <span class="ws-item-sv-count" title="${ws.storeViews.length} store view(s)">${ws.storeViews.length} SV</span>
+      <span class="ws-item-sv-count" title="${storeCount} store(s)">${storeCount} ST</span>
       <button class="env-item-edit ws-edit-btn" title="Editar label">&#x270E;</button>
       <button class="env-item-delete ws-delete-btn" title="Eliminar website" data-code="${escHtml(code)}">&#x2715;</button>
     `;
 
     item.addEventListener('click', (e) => {
       if (e.target.closest('.ws-delete-btn, .ws-edit-btn')) return;
-      selectedWebsiteCode = code;
+      if (selectedWebsiteCode !== code) {
+        selectedWebsiteCode = code;
+        selectedStoreCode = null;
+        resetStoreForm();
+      }
       renderWsManager();
     });
 
@@ -842,14 +1225,87 @@ function renderWebsiteList() {
 
     item.querySelector('.ws-delete-btn').addEventListener('click', (e) => {
       e.stopPropagation();
+      if (storeCount > 0 && !window.confirm(`Se eliminará el website "${code}" con ${storeCount} store(s) y ${countStoreViews(ws)} store view(s). ¿Continuar?`)) return;
       if (editingWsCode === code) resetWsForm();
       delete websites[code];
-      saveWebsites();
-      if (selectedWebsiteCode === code) selectedWebsiteCode = null;
+      saveProjects();
+      if (selectedWebsiteCode === code) {
+        selectedWebsiteCode = null;
+        selectedStoreCode = null;
+        resetStoreForm();
+      }
       renderWsManager();
     });
 
     list.appendChild(item);
+  });
+}
+
+function renderStorePanel() {
+  const stList = $('st-list');
+  const stContext = $('st-website-label');
+  const stForm = $('st-add-form');
+
+  stList.innerHTML = '';
+
+  if (!selectedWebsiteCode || !websites[selectedWebsiteCode]) {
+    stContext.textContent = 'Selecciona un website para ver sus stores';
+    stForm.style.display = 'none';
+    $('st-count').textContent = '0';
+    return;
+  }
+
+  const ws = websites[selectedWebsiteCode];
+  stContext.innerHTML = `Stores de <strong>${escHtml(selectedWebsiteCode)}</strong>${ws.label ? ` — ${escHtml(ws.label)}` : ''}`;
+  stForm.style.display = '';
+
+  const codes = Object.keys(ws.stores).sort();
+  $('st-count').textContent = codes.length;
+
+  if (codes.length === 0) {
+    stList.innerHTML = '<div class="ws-empty">Sin stores. Añade una abajo.</div>';
+    return;
+  }
+
+  codes.forEach((code) => {
+    const store = ws.stores[code];
+    const item = document.createElement('div');
+    item.className = 'ws-item' + (code === selectedStoreCode ? ' active' : '');
+
+    item.innerHTML = `
+      <div class="ws-item-info">
+        <div class="ws-item-code">${escHtml(code)}</div>
+        ${store.label ? `<div class="ws-item-label">${escHtml(store.label)}</div>` : ''}
+      </div>
+      <span class="ws-item-sv-count" title="${store.storeViews.length} store view(s)">${store.storeViews.length} SV</span>
+      <button class="env-item-edit st-edit-btn" title="Editar label">&#x270E;</button>
+      <button class="env-item-delete st-delete-btn" title="Eliminar store">&#x2715;</button>
+    `;
+
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.st-delete-btn, .st-edit-btn')) return;
+      selectedStoreCode = code;
+      renderStorePanel();
+      renderStoreViewPanel();
+    });
+
+    item.querySelector('.st-edit-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      startEditStore(code);
+    });
+
+    item.querySelector('.st-delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const svCount = store.storeViews.length;
+      if (svCount > 0 && !window.confirm(`Se eliminará la store "${code}" con ${svCount} store view(s). ¿Continuar?`)) return;
+      if (editingStoreCode === code) resetStoreForm();
+      delete ws.stores[code];
+      saveProjects();
+      if (selectedStoreCode === code) selectedStoreCode = null;
+      renderWsManager();
+    });
+
+    stList.appendChild(item);
   });
 }
 
@@ -860,21 +1316,24 @@ function renderStoreViewPanel() {
 
   svList.innerHTML = '';
 
-  if (!selectedWebsiteCode) {
-    svContext.textContent = 'Selecciona un website para ver sus store views';
+  const store = selectedWebsiteCode && selectedStoreCode && websites[selectedWebsiteCode]
+    ? websites[selectedWebsiteCode].stores[selectedStoreCode]
+    : null;
+
+  if (!store) {
+    svContext.textContent = 'Selecciona una store para ver sus store views';
     svContext.style.display = 'block';
     svForm.style.display = 'none';
     $('sv-count').textContent = '0';
     return;
   }
 
-  const ws = websites[selectedWebsiteCode];
-  svContext.innerHTML = `Store views de <strong>${escHtml(selectedWebsiteCode)}</strong>${ws.label ? ` — ${escHtml(ws.label)}` : ''}`;
+  svContext.innerHTML = `Store views de <strong>${escHtml(selectedWebsiteCode)}</strong> / <strong>${escHtml(selectedStoreCode)}</strong>`;
   svContext.style.display = 'block';
-  svForm.style.display = 'block';
+  svForm.style.display = '';
   $('new-sv-code').value = '';
 
-  const views = ws.storeViews || [];
+  const views = store.storeViews;
   $('sv-count').textContent = views.length;
 
   if (views.length === 0) {
@@ -893,11 +1352,10 @@ function renderStoreViewPanel() {
     `;
 
     item.querySelector('.sv-delete-btn').addEventListener('click', () => {
-      websites[selectedWebsiteCode].storeViews.splice(idx, 1);
-      saveWebsites();
+      views.splice(idx, 1);
+      saveProjects();
+      renderStorePanel(); // update the SV count of the store
       renderStoreViewPanel();
-      $('ws-count'); // update count badge on ws side too
-      renderWebsiteList();
     });
 
     svList.appendChild(item);
@@ -913,7 +1371,7 @@ function addWebsite() {
   if (editingWsCode) {
     if (websites[editingWsCode]) {
       websites[editingWsCode].label = label;
-      saveWebsites();
+      saveProjects();
     }
     resetWsForm();
     renderWsManager();
@@ -930,16 +1388,56 @@ function addWebsite() {
     return;
   }
 
-  websites[code] = { label, storeViews: [] };
-  saveWebsites();
+  websites[code] = { label, stores: {} };
+  saveProjects();
   codeInput.value = '';
   labelInput.value = '';
   selectedWebsiteCode = code;
+  selectedStoreCode = null;
+  resetStoreForm();
+  renderWsManager();
+}
+
+function addStore() {
+  if (!selectedWebsiteCode || !websites[selectedWebsiteCode]) return;
+  const stores = websites[selectedWebsiteCode].stores;
+  const codeInput = $('new-st-code');
+  const labelInput = $('new-st-label');
+  const code = codeInput.value.trim();
+  const label = labelInput.value.trim();
+
+  if (editingStoreCode) {
+    if (stores[editingStoreCode]) {
+      stores[editingStoreCode].label = label;
+      saveProjects();
+    }
+    resetStoreForm();
+    renderWsManager();
+    populateSidebarWebsites(); // refresh the sidebar selector with the new label
+    return;
+  }
+
+  if (!code) {
+    showFieldError(codeInput, 'El código es requerido');
+    return;
+  }
+  if (stores[code]) {
+    showFieldError(codeInput, 'Ya existe esa store en el website');
+    return;
+  }
+
+  stores[code] = { label, storeViews: [] };
+  saveProjects();
+  codeInput.value = '';
+  labelInput.value = '';
+  selectedStoreCode = code;
   renderWsManager();
 }
 
 function addStoreView() {
-  if (!selectedWebsiteCode) return;
+  if (!selectedWebsiteCode || !selectedStoreCode) return;
+  const store = websites[selectedWebsiteCode] && websites[selectedWebsiteCode].stores[selectedStoreCode];
+  if (!store) return;
   const input = $('new-sv-code');
   const code = input.value.trim();
 
@@ -947,16 +1445,246 @@ function addStoreView() {
     showFieldError(input, 'El código es requerido');
     return;
   }
-  if (websites[selectedWebsiteCode].storeViews.includes(code)) {
-    showFieldError(input, 'Ya existe esa store view');
+  if (store.storeViews.includes(code)) {
+    showFieldError(input, 'Ya existe esa store view en la store');
     return;
   }
 
-  websites[selectedWebsiteCode].storeViews.push(code);
-  saveWebsites();
+  store.storeViews.push(code);
+  saveProjects();
   input.value = '';
+  renderStorePanel(); // update the SV count of the store
   renderStoreViewPanel();
-  renderWebsiteList();
+}
+
+// ===== CUSTOMER GROUPS (per environment) =====
+
+function getActiveCustomerGroup() {
+  if (!activeEnvironment) return null;
+  const id = $('customer-group-select').value;
+  return (activeEnvironment.customerGroups || []).find((g) => g.id === id) || null;
+}
+
+// "General (ID 1)", "ID 1" or "356a192b…" depending on what the group defines
+function customerGroupText(group) {
+  const ref = group.groupId !== '' ? `ID ${group.groupId}` : `${group.hash.slice(0, 8)}…`;
+  return group.label ? `${group.label} (${ref})` : ref;
+}
+
+function populateCustomerGroupSelect() {
+  const select = $('customer-group-select');
+  // Prefer the current DOM value, fall back to the last-used customer group
+  const previousValue = select.value || lastUsed.customerGroup || '';
+  select.innerHTML = '';
+
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '— Ninguno (no se envía) —';
+  select.appendChild(none);
+
+  const groups = activeEnvironment ? (activeEnvironment.customerGroups || []) : [];
+  groups.forEach((g) => {
+    const opt = document.createElement('option');
+    opt.value = g.id;
+    opt.textContent = customerGroupText(g);
+    select.appendChild(opt);
+  });
+
+  select.value = groups.some((g) => g.id === previousValue) ? previousValue : '';
+  select.disabled = !activeEnvironment;
+  $('btn-open-cg-manager').disabled = !activeEnvironment;
+
+  // Keep lastUsed in sync with the effective selection
+  if (lastUsed.customerGroup !== select.value) setLastUsed('customerGroup', select.value);
+
+  renderActiveHeaders();
+}
+
+function initCustomerGroups() {
+  const select = $('customer-group-select');
+  select.addEventListener('change', () => {
+    setLastUsed('customerGroup', select.value);
+    resetFacetContext();
+    renderActiveHeaders();
+  });
+
+  $('btn-open-cg-manager').addEventListener('click', openCgModal);
+  $('btn-close-cg-modal').addEventListener('click', closeCgModal);
+  $('cg-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('cg-modal-overlay')) closeCgModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('cg-modal-overlay').style.display !== 'none') closeCgModal();
+  });
+
+  $('btn-save-cg').addEventListener('click', saveCustomerGroup);
+  $('btn-cancel-cg-edit').addEventListener('click', resetCgForm);
+  $('new-cg-id').addEventListener('input', syncCgHashField);
+  ['new-cg-id', 'new-cg-hash', 'new-cg-label'].forEach((id) => {
+    $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCustomerGroup(); });
+  });
+
+  populateCustomerGroupSelect();
+}
+
+// Customer group id being edited (null when adding a new one)
+let editingCgId = null;
+
+function openCgModal() {
+  if (!activeEnvironment) return;
+  resetCgForm();
+  renderCgManager();
+  $('cg-modal-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCgModal() {
+  $('cg-modal-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function showCgFormError(msg) {
+  const el = $('cg-form-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function resetCgForm() {
+  editingCgId = null;
+  $('new-cg-id').value = '';
+  const hashInput = $('new-cg-hash');
+  hashInput.value = '';
+  hashInput.readOnly = false;
+  hashInput.dataset.auto = '';
+  $('new-cg-label').value = '';
+  $('btn-save-cg').textContent = 'Añadir customer group';
+  $('btn-cancel-cg-edit').style.display = 'none';
+  showCgFormError('');
+}
+
+// With an ID the hash is computed (read-only); without it the hash is typed by hand
+function syncCgHashField() {
+  const idValue = $('new-cg-id').value.trim();
+  const hashInput = $('new-cg-hash');
+  const auto = idValue !== '';
+
+  hashInput.readOnly = auto;
+  if (auto) hashInput.value = /^\d+$/.test(idValue) ? sha1Hex(idValue) : '';
+  else if (hashInput.dataset.auto === '1') hashInput.value = '';
+  hashInput.dataset.auto = auto ? '1' : '';
+}
+
+function startEditCustomerGroup(group) {
+  editingCgId = group.id;
+  $('new-cg-id').value = group.groupId;
+  syncCgHashField();
+  if (group.groupId === '') $('new-cg-hash').value = group.hash;
+  $('new-cg-label').value = group.label || '';
+  $('btn-save-cg').textContent = 'Guardar cambios';
+  $('btn-cancel-cg-edit').style.display = 'block';
+  showCgFormError('');
+  $('new-cg-label').focus();
+}
+
+function renderCgManager() {
+  const groups = activeEnvironment.customerGroups;
+  const list = $('cg-list');
+  list.innerHTML = '';
+
+  $('cg-count').textContent = groups.length;
+  $('cg-context').innerHTML = `Customer groups del entorno <strong>${escHtml(activeEnvironment.label)}</strong>`;
+
+  if (groups.length === 0) {
+    list.innerHTML = '<div class="ws-empty">Sin customer groups. Añade uno abajo.</div>';
+    return;
+  }
+
+  groups.forEach((group) => {
+    const item = document.createElement('div');
+    item.className = 'ws-item';
+    const title = group.label || (group.groupId !== '' ? `ID ${group.groupId}` : 'Hash manual');
+    const detail = `${group.groupId !== '' ? `ID ${group.groupId} · ` : ''}${group.hash}`;
+
+    item.innerHTML = `
+      <div class="ws-item-info">
+        <div class="ws-item-code">${escHtml(title)}</div>
+        <div class="ws-item-label" title="${escHtml(detail)}">${escHtml(detail)}</div>
+      </div>
+      <button class="env-item-edit cg-edit-btn" title="Editar customer group">&#x270E;</button>
+      <button class="env-item-delete cg-delete-btn" title="Eliminar customer group">&#x2715;</button>
+    `;
+
+    item.querySelector('.cg-edit-btn').addEventListener('click', () => startEditCustomerGroup(group));
+
+    item.querySelector('.cg-delete-btn').addEventListener('click', () => {
+      const wasSelected = $('customer-group-select').value === group.id;
+      if (editingCgId === group.id) resetCgForm();
+      activeEnvironment.customerGroups = groups.filter((g) => g !== group);
+      saveProjects();
+      renderCgManager();
+      populateCustomerGroupSelect();
+      if (wasSelected) resetFacetContext();
+    });
+
+    list.appendChild(item);
+  });
+}
+
+function saveCustomerGroup() {
+  if (!activeEnvironment) return;
+  const idInput = $('new-cg-id');
+  const hashInput = $('new-cg-hash');
+  const groupId = idInput.value.trim();
+  const label = $('new-cg-label').value.trim();
+  let hash;
+
+  if (groupId) {
+    if (!/^\d+$/.test(groupId)) {
+      showFieldError(idInput);
+      showCgFormError('El ID del customer group debe ser un número entero (0, 1, 2...).');
+      return;
+    }
+    hash = sha1Hex(groupId);
+  } else {
+    hash = hashInput.value.trim();
+    if (!hash) {
+      showFieldError(idInput);
+      showCgFormError('Indica el ID del customer group o, si lo prefieres, el hash manualmente.');
+      return;
+    }
+    if (!/^[0-9a-f]{40}$/i.test(hash)) {
+      showFieldError(hashInput);
+      showCgFormError('El hash debe tener 40 caracteres hexadecimales (sha1 del ID).');
+      return;
+    }
+    hash = hash.toLowerCase();
+  }
+
+  const groups = activeEnvironment.customerGroups;
+  if (groups.some((g) => g.hash === hash && g.id !== editingCgId)) {
+    showFieldError(groupId ? idInput : hashInput);
+    showCgFormError('Ya existe un customer group con ese hash en este entorno.');
+    return;
+  }
+
+  let changedSelected = false;
+  if (editingCgId) {
+    const group = groups.find((g) => g.id === editingCgId);
+    if (group) {
+      group.groupId = groupId;
+      group.hash = hash;
+      group.label = label;
+      changedSelected = $('customer-group-select').value === group.id;
+    }
+  } else {
+    groups.push({ id: newId(), groupId, hash, label });
+  }
+
+  saveProjects();
+  resetCgForm();
+  renderCgManager();
+  populateCustomerGroupSelect();
+  if (changedSelected) resetFacetContext();
 }
 
 // ===== TABS =====
@@ -1006,24 +1734,80 @@ function initTabs() {
 
 // ===== BUILD HEADERS =====
 
-function buildHeaders() {
-  const website = $('website-select').value;
-  const storeView = $('store-view-select').value;
-  const envId = activeEnvironment ? activeEnvironment.environmentId : '';
+// x-api-key of the active environment, or the default one when it has none
+function getApiKey() {
+  const custom = activeEnvironment && activeEnvironment.apiKey ? activeEnvironment.apiKey.trim() : '';
+  return custom || DEFAULT_API_KEY;
+}
 
-  return {
-    'Content-Type': 'application/json',
-    'Magento-Environment-Id': envId,
-    'Magento-Store-Code': website,
-    'Magento-Website-Code': website,
-    'Magento-store-view-code': storeView,
-    'x-api-key': API_KEY,
-  };
+// Single source of truth for the headers: [name, value] in display order.
+// magento-customer-group is only present when a customer group is selected.
+function getActiveHeaders() {
+  const headers = [
+    ['magento-environment-id', activeEnvironment ? activeEnvironment.environmentId : ''],
+    ['magento-website-code', $('website-select').value],
+    ['magento-store-code', $('store-select').value],
+    ['magento-store-view-code', $('store-view-select').value],
+  ];
+
+  const group = getActiveCustomerGroup();
+  if (group) headers.push(['magento-customer-group', group.hash]);
+
+  headers.push(['x-api-key', getApiKey()]);
+  return headers;
+}
+
+function buildHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  getActiveHeaders().forEach(([name, value]) => {
+    headers[name] = value;
+  });
+  return headers;
+}
+
+// Sidebar "Headers activos": shows exactly what buildHeaders() sends
+function renderActiveHeaders() {
+  const container = $('active-headers');
+  if (!container) return;
+
+  const group = getActiveCustomerGroup();
+  const hasCustomKey = !!(activeEnvironment && activeEnvironment.apiKey && activeEnvironment.apiKey.trim());
+  const row = (name, valueHtml) => `
+    <div class="active-header">
+      <span class="active-header-name">${name}</span>
+      <span class="active-header-value">${valueHtml}</span>
+    </div>`;
+  const empty = (text) => `<span class="active-header-empty">${text}</span>`;
+
+  const headers = getActiveHeaders();
+  const sent = new Set(headers.map(([name]) => name));
+  const rows = [];
+
+  headers.forEach(([name, value]) => {
+    // Show the optional header even when it is not sent
+    if (name === 'x-api-key' && !sent.has('magento-customer-group')) {
+      rows.push(row('magento-customer-group', empty('no se envía')));
+    }
+
+    let valueHtml = value ? escHtml(value) : empty('sin valor');
+    if (name === 'magento-customer-group') {
+      valueHtml = `${escHtml(customerGroupText(group))}<span class="active-header-sub">${escHtml(value)}</span>`;
+    } else if (name === 'x-api-key' && !hasCustomKey) {
+      valueHtml += ' <span class="active-header-tag">por defecto</span>';
+    }
+    rows.push(row(name, valueHtml));
+  });
+
+  container.innerHTML = rows.join('');
 }
 
 // ===== VALIDATE BEFORE CALL =====
 
 function validateConfig() {
+  if (!activeProject) {
+    return ['No hay ningún proyecto. Crea o selecciona uno en el panel izquierdo.'];
+  }
+
   const errors = [];
 
   if (!activeEnvironment) {
@@ -1033,6 +1817,11 @@ function validateConfig() {
   const website = $('website-select').value;
   if (!website) {
     errors.push('Selecciona un Website Code.');
+  }
+
+  const store = $('store-select').value;
+  if (!store) {
+    errors.push('Selecciona un Store Code.');
   }
 
   const storeView = $('store-view-select').value;
@@ -1045,10 +1834,17 @@ function validateConfig() {
 
 // ===== GRAPHQL FETCH =====
 
-// Formats the GraphQL payload sent to the API for display purposes
-function formatSentQuery(query, variables) {
+// Headers actually sent with each GraphQL response, so the displayed request matches
+// what was sent even if the panel context changes while the request is in flight
+const sentHeadersByResponse = new WeakMap();
+
+// Formats the request (headers, query and variables) for display purposes.
+// `result` is the object returned by graphqlFetch; without it the current headers are used.
+function formatSentQuery(query, variables, result) {
+  const headers = (result && sentHeadersByResponse.get(result)) || buildHeaders();
+  const headerLines = Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join('\n');
   const vars = JSON.stringify(variables, null, 2);
-  return `# Query\n${query}\n\n# Variables\n${vars}`;
+  return `# Headers\n${headerLines}\n\n# Query\n${query}\n\n# Variables\n${vars}`;
 }
 
 async function graphqlFetch(query, variables = {}) {
@@ -1062,6 +1858,7 @@ async function graphqlFetch(query, variables = {}) {
   });
 
   const json = await response.json();
+  if (json && typeof json === 'object') sentHeadersByResponse.set(json, headers);
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -1230,7 +2027,14 @@ const attributeMetadataCache = new Map();
 
 function getContextKey() {
   const envId = activeEnvironment ? activeEnvironment.environmentId : '';
-  return `${envId}|${$('website-select').value}|${$('store-view-select').value}`;
+  const group = getActiveCustomerGroup();
+  return [
+    envId,
+    $('website-select').value,
+    $('store-select').value,
+    $('store-view-select').value,
+    group ? group.hash : '',
+  ].join('|');
 }
 
 // Resolves to null when the metadata cannot be loaded, so callers can degrade gracefully
@@ -1326,7 +2130,7 @@ async function runMetadataLoad() {
   $('metadata-loading').classList.remove('visible');
   $('btn-metadata-load').disabled = false;
 
-  $('metadata-query-pre').textContent = formatSentQuery(ATTRIBUTE_METADATA_QUERY, {});
+  $('metadata-query-pre').textContent = formatSentQuery(ATTRIBUTE_METADATA_QUERY, {}, metadata && metadata.raw);
   show('metadata-query-container', true);
 
   if (!metadata) {
@@ -1775,7 +2579,7 @@ async function runProductSearch(page = 1, keepState = false) {
     $('products-raw-container').style.display = 'block';
 
     // Show sent query
-    $('products-query-pre').textContent = formatSentQuery(PRODUCT_SEARCH_QUERY, variables);
+    $('products-query-pre').textContent = formatSentQuery(PRODUCT_SEARCH_QUERY, variables, data);
     $('products-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
@@ -1881,7 +2685,7 @@ async function runProductsBySku() {
     $('psku-raw-pre').textContent = JSON.stringify(data, null, 2);
     $('psku-raw-container').style.display = 'block';
 
-    $('psku-query-pre').textContent = formatSentQuery(PRODUCTS_BY_SKU_QUERY, variables);
+    $('psku-query-pre').textContent = formatSentQuery(PRODUCTS_BY_SKU_QUERY, variables, data);
     $('psku-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
@@ -2211,7 +3015,7 @@ async function runCategorySearch() {
     $('categories-raw-container').style.display = 'block';
 
     // Sent query
-    $('categories-query-pre').textContent = formatSentQuery(CATEGORIES_QUERY, variables);
+    $('categories-query-pre').textContent = formatSentQuery(CATEGORIES_QUERY, variables, data);
     $('categories-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
@@ -2541,7 +3345,7 @@ async function runCategoryProductsSearch(categoryId, categoryName, page = 1) {
     $('cat-products-raw-container').style.display = 'block';
 
     // Sent query
-    $('cat-products-query-pre').textContent = formatSentQuery(CATEGORY_PRODUCTS_QUERY, variables);
+    $('cat-products-query-pre').textContent = formatSentQuery(CATEGORY_PRODUCTS_QUERY, variables, data);
     $('cat-products-query-container').style.display = 'block';
 
     if (data.errors && data.errors.length > 0) {
@@ -2826,9 +3630,11 @@ function buildProductModalContent(pv) {
 document.addEventListener('DOMContentLoaded', () => {
   loadLastUsed();
   initFavoriteAttributes();
-  loadWebsites();
+  loadProjects();
   initSettings();
+  initProjectManager();
   initEnvironmentManager();
+  initCustomerGroups();
   initWebsiteSelector();
   initWebsiteManager();
   initTabs();

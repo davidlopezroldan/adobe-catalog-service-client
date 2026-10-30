@@ -53,7 +53,7 @@
         <div class="settings-section">
           <div class="settings-section-title">Configuración (import / export)</div>
           <p class="settings-hint" style="margin-top:0;margin-bottom:12px;">
-            Exporta toda tu configuración (entornos, websites/store views y ajustes) a un archivo para compartirla con tu equipo. Al importar, se reemplazará tu configuración actual.
+            Exporta toda tu configuración (proyectos con sus entornos, websites, stores y store views, y ajustes) a un archivo para compartirla con tu equipo. Al importar, se reemplazará tu configuración actual.
           </p>
           <div class="settings-io-actions">
             <button id="btn-export-config" class="btn btn-secondary">
@@ -83,6 +83,20 @@
 
     <!-- ===== SIDEBAR ===== -->
     <aside class="sidebar">
+
+      <!-- PROJECT -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Proyecto
+        </div>
+        <div class="project-row">
+          <select id="project-select" title="Proyecto activo"></select>
+          <button id="btn-add-project" class="btn btn-secondary btn-sm project-btn" title="Nuevo proyecto">+</button>
+          <button id="btn-edit-project" class="btn btn-secondary btn-sm project-btn" title="Renombrar proyecto">&#x270E;</button>
+          <button id="btn-delete-project" class="btn btn-secondary btn-sm project-btn" title="Eliminar proyecto">&#x2715;</button>
+        </div>
+      </div>
 
       <!-- ENVIRONMENT ID -->
       <div class="sidebar-section">
@@ -118,18 +132,22 @@
               <option value="production">Producción</option>
             </select>
           </div>
+          <div class="form-row">
+            <label for="new-env-api-key">x-api-key (opcional)</label>
+            <input id="new-env-api-key" type="text" placeholder="search_gql" autocomplete="off" spellcheck="false" />
+          </div>
           <button id="btn-save-env" class="btn btn-primary" style="width:100%">Guardar entorno</button>
         </div>
       </div>
 
-      <!-- WEBSITE / STORE VIEW -->
+      <!-- WEBSITE / STORE / STORE VIEW -->
       <div class="sidebar-section">
         <div class="sidebar-section-title" style="justify-content:space-between">
           <span style="display:flex;align-items:center;gap:6px">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            Website / Store View
+            Website / Store / View
           </span>
-          <button id="btn-open-ws-manager" class="btn btn-secondary btn-sm" title="Gestionar websites y store views">
+          <button id="btn-open-ws-manager" class="btn btn-secondary btn-sm" title="Gestionar websites, stores y store views">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
             Gestionar
           </button>
@@ -139,8 +157,30 @@
           <select id="website-select"></select>
         </div>
         <div class="form-row">
+          <label for="store-select">Store Code</label>
+          <select id="store-select"></select>
+        </div>
+        <div class="form-row">
           <label for="store-view-select">Store View Code</label>
           <select id="store-view-select"></select>
+        </div>
+      </div>
+
+      <!-- CUSTOMER GROUP (per environment) -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-title" style="justify-content:space-between">
+          <span style="display:flex;align-items:center;gap:6px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Customer Group
+          </span>
+          <button id="btn-open-cg-manager" class="btn btn-secondary btn-sm" title="Gestionar los customer groups del entorno">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            Gestionar
+          </button>
+        </div>
+        <div class="form-row">
+          <label for="customer-group-select">Magento-Customer-Group</label>
+          <select id="customer-group-select"></select>
         </div>
       </div>
 
@@ -150,10 +190,7 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           Headers activos
         </div>
-        <div style="font-size:11px;line-height:1.9;color:var(--color-text-muted);font-family:var(--font-mono)">
-          <div><span style="color:var(--color-text-muted)">x-api-key</span><br/><span style="color:var(--color-success)">search_gql</span></div>
-          <div style="margin-top:6px"><span style="color:var(--color-text-muted)">Env-Id / Store / Website / View</span><br/><span style="color:var(--color-sku);font-size:10px">según selección</span></div>
-        </div>
+        <div id="active-headers" class="active-headers"></div>
       </div>
 
     </aside>
@@ -658,14 +695,14 @@
     </div>
   </div>
 
-  <!-- ===== MODAL: GESTIÓN WEBSITES / STORE VIEWS ===== -->
+  <!-- ===== MODAL: GESTIÓN WEBSITES / STORES / STORE VIEWS ===== -->
   <div id="ws-modal-overlay" class="modal-overlay" style="display:none">
-    <div class="modal">
+    <div class="modal modal-wide">
 
       <div class="modal-header">
         <div class="modal-title">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          Gestión de Websites y Store Views
+          Gestión de Websites, Stores y Store Views
         </div>
         <button id="btn-close-ws-modal" class="modal-close" title="Cerrar">&#x2715;</button>
       </div>
@@ -699,7 +736,38 @@
         <!-- Separador -->
         <div class="modal-divider"></div>
 
-        <!-- Columna derecha: Store Views del website seleccionado -->
+        <!-- Columna central: Stores del website seleccionado -->
+        <div class="modal-col">
+          <div class="modal-col-header">
+            <span class="modal-col-title">Stores</span>
+            <span id="st-count" class="tab-pill">0</span>
+          </div>
+
+          <div id="st-website-label" class="sv-context">
+            Selecciona un website para ver sus stores
+          </div>
+
+          <div id="st-list" class="ws-list"></div>
+
+          <!-- Formulario añadir store -->
+          <div class="ws-add-form" id="st-add-form" style="display:none">
+            <div class="form-row">
+              <label for="new-st-code">Store Code</label>
+              <input id="new-st-code" type="text" placeholder="Ej: main_store" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-row">
+              <label for="new-st-label">Label (opcional)</label>
+              <input id="new-st-label" type="text" placeholder="Ej: Tienda principal" autocomplete="off" />
+            </div>
+            <button id="btn-save-st" class="btn btn-primary" style="width:100%">Añadir store</button>
+            <button id="btn-cancel-st-edit" class="btn btn-secondary" style="width:100%;margin-top:6px;display:none">Cancelar edición</button>
+          </div>
+        </div>
+
+        <!-- Separador -->
+        <div class="modal-divider"></div>
+
+        <!-- Columna derecha: Store Views de la store seleccionada -->
         <div class="modal-col">
           <div class="modal-col-header">
             <span class="modal-col-title">Store Views</span>
@@ -707,7 +775,7 @@
           </div>
 
           <div id="sv-website-label" class="sv-context">
-            Selecciona un website para ver sus store views
+            Selecciona una store para ver sus store views
           </div>
 
           <div id="sv-list" class="ws-list"></div>
@@ -723,6 +791,53 @@
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CUSTOMER GROUPS DEL ENTORNO ===== -->
+  <div id="cg-modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal modal-cg">
+
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Gestión de Customer Groups
+        </div>
+        <button id="btn-close-cg-modal" class="modal-close" title="Cerrar">&#x2715;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-col">
+          <div class="modal-col-header">
+            <span class="modal-col-title">Customer Groups</span>
+            <span id="cg-count" class="tab-pill">0</span>
+          </div>
+
+          <div id="cg-context" class="sv-context"></div>
+
+          <div id="cg-list" class="ws-list"></div>
+
+          <!-- Formulario añadir / editar customer group -->
+          <div class="ws-add-form" id="cg-add-form">
+            <div class="form-row">
+              <label for="new-cg-id">Customer Group ID</label>
+              <input id="new-cg-id" type="text" inputmode="numeric" placeholder="Ej: 1 (el hash se calcula solo)" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-row">
+              <label for="new-cg-hash">Hash (sha1 del ID)</label>
+              <input id="new-cg-hash" type="text" placeholder="Sin ID: pega aquí el hash manualmente" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-row">
+              <label for="new-cg-label">Label (opcional)</label>
+              <input id="new-cg-label" type="text" placeholder="Ej: General" autocomplete="off" />
+            </div>
+            <div id="cg-form-error" class="form-error" style="display:none"></div>
+            <button id="btn-save-cg" class="btn btn-primary" style="width:100%">Añadir customer group</button>
+            <button id="btn-cancel-cg-edit" class="btn btn-secondary" style="width:100%;margin-top:6px;display:none">Cancelar edición</button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 

@@ -6,10 +6,13 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 
 ## Características
 
-- **Gestión de entornos (Environment IDs)** persistidos en `localStorage`. Cada entorno tiene un label y un tipo (Staging o Producción) que determina automáticamente el endpoint usado. Los entornos se pueden editar (label, ID y tipo) con el icono de lápiz:
+- **Proyectos:** la configuración se organiza en proyectos (selector en la parte superior del panel lateral, con botones para crear, renombrar y eliminar). Un proyecto agrupa sus **entornos** y su jerarquía **Website → Store → Store View**; todas las entidades dependen de su padre y los códigos son únicos entre hermanos. Al recargar la página se vuelve al último proyecto utilizado.
+- **Gestión de entornos (Environment IDs)** dentro de cada proyecto, persistidos en `localStorage`. Cada entorno tiene un label, un tipo (Staging o Producción) que determina automáticamente el endpoint usado y una **`x-api-key` opcional** (si se deja vacía se usa `search_gql`). Los entornos se pueden editar (label, ID, tipo y API key) con el icono de lápiz:
   - Staging: `https://catalog-service-sandbox.adobe.io/graphql`
   - Producción: `https://catalog-service.adobe.io/graphql`
-- **Gestión de Websites y Store Views** desde un modal (con edición del label de cada website), también persistida en `localStorage`. Al seleccionar un website se filtran sus store views asociadas.
+- **Customer groups por entorno:** cada entorno puede tener una lista de customer groups (botón **Gestionar** de la sección Customer Group). Se añaden indicando el **ID** del grupo (el hash `sha1(<id>)` que espera Adobe se calcula automáticamente) o bien escribiendo el **hash** a mano, con un label opcional. El grupo seleccionado se envía en `Magento-Customer-Group`; con "Ninguno" (por defecto) la cabecera no se envía.
+- **Gestión de Websites, Stores y Store Views** desde un modal de tres columnas (con label editable en websites y stores), también persistida en `localStorage` dentro del proyecto. Al seleccionar un website se filtran sus stores y al seleccionar una store, sus store views.
+- **Headers activos** en el panel lateral: muestra en todo momento los headers que se envían con sus valores reales (incluido el customer group seleccionado y si la API key es la de por defecto).
 - **Pestaña Productos:** búsqueda con `productSearch` por `phrase`, resultados en tarjetas con SKU y atributos, sección de facets y modal de detalle por producto. Los facets se abren en una modal con el botón "Filtrar" (junto a "Buscar productos", con el número de filtros aplicados). Sus buckets son clicables para filtrar la consulta (OR dentro de un facet, AND entre facets) y los filtros aplicados se muestran como chips con botón "Limpiar todo". Los facets no filtrables según `attributeMetadata.filterableInSearch` aparecen deshabilitados; los metadatos se cachean por entorno, website y store view. El botón "Ordenar" abre una modal con los atributos ordenables (`attributeMetadata.sortable`) y las opciones ASC/DESC; el orden se guarda en `localStorage` por entorno, se incluye al exportar/importar la configuración y se ignora (con un aviso en el botón) si el atributo deja de ser ordenable en el contexto actual.
 - **Pestaña Productos por SKU:** consulta con el endpoint `products` (`skus`) a partir de uno o varios SKUs separados por coma o espacio. Muestra las mismas tarjetas y el modal de detalle, e indica los SKUs no encontrados. Este endpoint no tiene paginación ni facets.
 - **Tipo de producto y simples asociados:** las tarjetas y el modal muestran si el producto es *Simple* o *Complex*. Al abrir un complejo, el modal carga bajo demanda (query `products` con `options`) sus productos simples asociados.
@@ -19,10 +22,11 @@ Panel web estático (HTML + CSS + JavaScript, sin dependencias ni build) para co
 - **Pestaña Metadatos:** carga `attributeMetadata` del contexto actual y lista en una tabla todos los atributos filtrables (`filterableInSearch`) y ordenables (`sortable`) con su label, `frontendInput`, si son numéricos y si son filtrables y/u ordenables, con resumen de totales, búsqueda por texto, filtros por capacidad y tipo de input, JSON crudo y consulta enviada.
 - **Paginación** en ambas pestañas de productos (`page_size` + `current_page`), con controles de página encima de los resultados.
 - **Ajustes** (icono de engranaje en la cabecera) con el tamaño de página (`page_size`, por defecto 500) persistido en `localStorage`.
-- **Exportar / importar configuración** a un archivo JSON (entornos, websites/store views, ajustes y últimas selecciones) para compartirla con el equipo.
-- **Persistencia de las últimas selecciones** (entorno, website, store view, último `phrase` y última category id) restauradas al recargar.
+- **Exportar / importar configuración** a un archivo JSON (proyectos con sus entornos, customer groups, websites, stores y store views, ajustes y últimas selecciones) para compartirla con el equipo. Los archivos exportados antes de existir los proyectos se importan como un "Proyecto por defecto".
+- **Persistencia de las últimas selecciones** (proyecto, entorno, customer group, website, store, store view, último `phrase` y última category id) restauradas al recargar.
 - **Navegación por hash de URL** (`#products`, `#products-by-sku`, `#categories`, `#category-products`, `#metadata`): la pestaña activa se mantiene al recargar y es enlazable.
 - **JSON crudo** de cada respuesta, colapsado por defecto.
+- **Consulta GraphQL enviada** de cada llamada, colapsada por defecto, con tres bloques: `# Headers` (los realmente enviados), `# Query` y `# Variables`.
 - **Favicon** con el logotipo ACS de la cabecera (SVG e ICO con varios tamaños), icono para iOS y `theme-color` naranja.
 
 ## Headers enviados
@@ -31,20 +35,25 @@ Cada llamada incluye:
 
 | Header | Valor |
 | --- | --- |
-| `Magento-Environment-Id` | del entorno activo |
-| `Magento-Store-Code` | website seleccionado |
-| `Magento-Website-Code` | website seleccionado |
-| `Magento-store-view-code` | store view seleccionada |
-| `x-api-key` | `search_gql` (fijo) |
+| `magento-environment-id` | del entorno activo |
+| `magento-website-code` | website seleccionado |
+| `magento-store-code` | store seleccionada |
+| `magento-store-view-code` | store view seleccionada |
+| `magento-customer-group` | hash del customer group seleccionado (solo si hay uno seleccionado; si no, no se envía) |
+| `x-api-key` | la del entorno activo, o `search_gql` si no tiene |
 
 ## Uso
 
 Al ser una aplicación estática, basta con abrir `index.html` en el navegador.
 
-1. Añade un entorno con su `Magento-Environment-Id` y su tipo (Staging / Producción).
-2. Selecciona website y store view (gestionables desde el botón **Gestionar**).
-3. Usa las pestañas **Productos**, **Productos por SKU**, **Categorías** o **Productos de Categorías** para lanzar consultas.
-4. Desde **Ajustes** (engranaje en la cabecera) puedes cambiar el tamaño de página y exportar/importar tu configuración.
+1. Crea un **proyecto** (botón `+` junto al selector de proyecto).
+2. Añade un entorno con su `Magento-Environment-Id`, su tipo (Staging / Producción) y, opcionalmente, su `x-api-key`.
+3. Crea la jerarquía website → store → store view (botón **Gestionar** de la sección Website / Store / View) y selecciónala en el panel lateral.
+4. Si lo necesitas, define los customer groups del entorno desde **Gestionar** en la sección Customer Group y selecciona el que quieras enviar.
+5. Usa las pestañas **Productos**, **Productos por SKU**, **Categorías** o **Productos de Categorías** para lanzar consultas.
+6. Desde **Ajustes** (engranaje en la cabecera) puedes cambiar el tamaño de página y exportar/importar tu configuración.
+
+Si ya usabas la aplicación antes de los proyectos, tus entornos y websites se migran automáticamente a un "Proyecto por defecto" (cada website pasa a tener una store con su mismo código, que es lo que antes se enviaba como `Magento-Store-Code`).
 
 ## Estructura
 
@@ -58,6 +67,15 @@ media/icons/    Favicons e iconos de la aplicación
 ```
 
 ## Changelog
+
+### 2026-10-30
+- Show the headers actually sent in the "Ver consulta GraphQL enviada" sections, above the query and variables
+- Add projects grouping environments and a Website > Store > Store View hierarchy, restoring the last used project on reload
+- Add Store level between websites and store views, with optional label, sent as Magento-Store-Code
+- Add per-environment customer groups with automatic SHA-1 hash from the group ID or a manual hash, sent as Magento-Customer-Group only when selected
+- Add per-environment x-api-key, defaulting to search_gql when empty
+- Show the real headers sent in the Headers activos section
+- Migrate existing environments and websites to a default project and import pre-project config files
 
 ### 2026-10-29
 - Add ACS favicon (SVG, ICO and PNG) and iOS touch icon in media/icons
