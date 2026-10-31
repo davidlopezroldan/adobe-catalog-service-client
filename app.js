@@ -25,8 +25,8 @@ const DEFAULT_SETTINGS = {
 
 // Sections of the product detail modal that the user can show, hide and reorder
 const MODAL_SECTIONS = [
-  { id: 'price', title: 'Precio' },
   { id: 'general', title: 'Información general' },
+  { id: 'price', title: 'Precio' },
   { id: 'options', title: 'Opciones' },
   { id: 'variants', title: 'Variantes' },
   { id: 'attributes', title: 'Atributos' },
@@ -4325,6 +4325,7 @@ function normalizeModalView(raw) {
   const seen = new Set();
   const sections = [];
 
+  // The array order is the display order; unknown or repeated entries are dropped
   (Array.isArray(view.sections) ? view.sections : []).forEach((cfg) => {
     if (!cfg || typeof cfg !== 'object' || !known.has(cfg.id) || seen.has(cfg.id)) return;
     seen.add(cfg.id);
