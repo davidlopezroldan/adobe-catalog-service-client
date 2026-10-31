@@ -3728,6 +3728,347 @@ const PRODUCT_VARIANTS_QUERY = `query Variants($sku: String!, $pageSize: Int, $c
   }
 }`;
 
+// General product fields, loaded on demand when the modal opens (descriptions are too heavy for the lists)
+const PRODUCT_GENERAL_QUERY = `query Products($skus: [String]!) {
+  products(skus: $skus) {
+    inStock
+    lowStock
+    addToCartAllowed
+    shortDescription
+    description
+    url
+    urlKey
+    externalId
+    lastModifiedAt
+    metaTitle
+    metaDescription
+    metaKeyword
+  }
+}`;
+
+// Requests sent by the open modal (general info, options, variants pages), shown in "Ver consulta GraphQL enviada"
+let modalQueries = [];
+
+const hasText = (v) => v != null && String(v).trim() !== '';
+
+// Keeps a small set of formatting tags from merchant HTML; everything else is unwrapped or dropped
+function sanitizeHtml(html) {
+  const allowed = new Set(['P', 'BR', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'A', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'SPAN', 'DIV', 'BLOCKQUOTE', 'SMALL', 'SUB', 'SUP']);
+  const dropped = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'MATH']);
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+
+  const clean = (node) => {
+    [...node.childNodes].forEach((child) => {
+      if (child.nodeType === 3) return;
+      if (child.nodeType !== 1) { child.remove(); return; }
+      if (dropped.has(child.tagName)) { child.remove(); return; }
+      clean(child);
+      if (!allowed.has(child.tagName)) { child.replaceWith(...child.childNodes); return; }
+      const href = child.tagName === 'A' ? child.getAttribute('href') : null;
+      [...child.attributes].forEach((a) => child.removeAttribute(a.name));
+      if (href && /^(https?:|mailto:)/i.test(href.trim())) {
+        child.setAttribute('href', href.trim());
+        child.setAttribute('target', '_blank');
+        child.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+  };
+  clean(doc.body);
+  return doc.body.innerHTML;
+}
+
+function yesNoHtml(value) {
+  return value ? '<span class="stock-in">Sí</span>' : '<span class="stock-out">No</span>';
+}
+
+// Only fields with a value are shown
+function buildGeneralHtml(p) {
+  const rows = [];
+  const row = (label, valueHtml) => rows.push(`<div class="gen-label">${label}</div><div class="gen-value">${valueHtml}</div>`);
+
+  if (p.inStock != null) row('Stock', yesNoHtml(p.inStock));
+  if (p.lowStock === true) row('Stock bajo', '<span class="stock-out">Sí</span>');
+  if (p.addToCartAllowed != null) row('Añadir al carrito', yesNoHtml(p.addToCartAllowed));
+  if (hasText(p.url)) {
+    const safe = /^https?:\/\//i.test(p.url.trim());
+    row('URL', safe
+      ? `<a href="${escHtml(p.url.trim())}" target="_blank" rel="noopener noreferrer">${escHtml(p.url.trim())}</a>`
+      : escHtml(p.url));
+  } else if (hasText(p.urlKey)) {
+    row('URL key', `<span class="gen-mono">${escHtml(p.urlKey)}</span>`);
+  }
+  if (hasText(p.externalId)) row('External ID', `<span class="gen-mono">${escHtml(p.externalId)}</span>`);
+  if (hasText(p.lastModifiedAt)) {
+    const d = new Date(p.lastModifiedAt);
+    row('Modificado', escHtml(Number.isNaN(d.getTime()) ? p.lastModifiedAt : d.toLocaleString('es-ES')));
+  }
+
+  const text = (label, html) => `<div class="gen-text-label">${label}</div><div class="gen-text">${sanitizeHtml(html)}</div>`;
+  const seoRows = [['Meta title', p.metaTitle], ['Meta description', p.metaDescription], ['Meta keywords', p.metaKeyword]]
+    .filter(([, v]) => hasText(v))
+    .map(([l, v]) => `<div class="gen-label">${l}</div><div class="gen-value">${escHtml(v)}</div>`).join('');
+
+  return [
+    rows.length ? `<div class="gen-grid">${rows.join('')}</div>` : '',
+    hasText(p.shortDescription) ? text('Descripción corta', p.shortDescription) : '',
+    hasText(p.description) ? text('Descripción', p.description) : '',
+    seoRows ? `<details class="pmd-option"><summary class="pmd-option-title"><svg class="summary-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>SEO</summary><div class="gen-grid">${seoRows}</div></details>` : '',
+  ].join('');
+}
+
+async function loadGeneralInfo(pv) {
+  const section = $('pmd-general-section');
+  const body = $('pmd-general-body');
+  const variables = { skus: [pv.sku] };
+  const stale = () => currentModalPv !== pv;
+
+  let data;
+  try {
+    data = await graphqlFetch(PRODUCT_GENERAL_QUERY, variables);
+  } catch (err) {
+    if (stale()) return;
+    body.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>`;
+    modalQueries.push({ title: 'Información general', text: formatSentQuery(PRODUCT_GENERAL_QUERY, variables) });
+    renderModalQueries();
+    return;
+  }
+  if (stale()) return;
+
+  modalQueries.push({ title: 'Información general', text: formatSentQuery(PRODUCT_GENERAL_QUERY, variables, data) });
+  renderModalQueries();
+
+  if (data.errors && data.errors.length > 0) {
+    body.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>`;
+    return;
+  }
+
+  const html = buildGeneralHtml((data?.data?.products || []).filter(Boolean)[0] || {});
+  if (!html) {
+    section.style.display = 'none';
+    return;
+  }
+  body.innerHTML = html;
+}
+
+// Prices, loaded on demand in their own request: simple products expose `price`, complex ones `priceRange`
+const PRODUCT_PRICE_QUERY = `query Products($skus: [String]!) {
+  products(skus: $skus) {
+    __typename
+    ... on SimpleProductView {
+      price {
+        roles
+        tiers {
+          tier {
+            adjustments {
+              amount
+              code
+            }
+            amount {
+              currency
+              value
+            }
+          }
+        }
+        regular {
+          adjustments {
+            amount
+            code
+          }
+          amount {
+            currency
+            value
+          }
+        }
+        final {
+          adjustments {
+            amount
+            code
+          }
+          amount {
+            currency
+            value
+          }
+        }
+      }
+    }
+    ... on ComplexProductView {
+      priceRange {
+        minimum {
+          roles
+          regular {
+            adjustments {
+              amount
+              code
+            }
+            amount {
+              currency
+              value
+            }
+          }
+          final {
+            adjustments {
+              amount
+              code
+            }
+            amount {
+              currency
+              value
+            }
+          }
+        }
+        maximum {
+          roles
+          regular {
+            adjustments {
+              amount
+              code
+            }
+            amount {
+              currency
+              value
+            }
+          }
+          final {
+            adjustments {
+              amount
+              code
+            }
+            amount {
+              currency
+              value
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+function formatMoney(money) {
+  if (!money || money.value == null) return null;
+  try {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: money.currency }).format(money.value);
+  } catch {
+    return `${money.value} ${money.currency || ''}`.trim();
+  }
+}
+
+// Percentage the final price is below the regular one, or null when there is no discount
+function discountPercent(regular, final) {
+  if (!regular || !final || regular.value == null || final.value == null) return null;
+  if (!(regular.value > final.value) || regular.value <= 0) return null;
+  return Math.round((1 - final.value / regular.value) * 100);
+}
+
+// One price (final / regular / adjustments / roles) in a readable block
+function buildPriceBlock(price) {
+  if (!price) return '';
+  const final = price.final && price.final.amount;
+  const regular = price.regular && price.regular.amount;
+  const main = formatMoney(final) || formatMoney(regular);
+  if (!main) return '';
+
+  const pct = discountPercent(regular, final);
+  const strike = pct != null ? `<span class="price-regular">${escHtml(formatMoney(regular))}</span><span class="price-badge">-${pct}%</span>` : '';
+
+  const adjustments = [['final', price.final], ['regular', price.regular]].flatMap(([which, p]) =>
+    ((p && p.adjustments) || []).filter(Boolean).map((a) => {
+      const amount = a.amount != null ? new Intl.NumberFormat('es-ES', { signDisplay: 'exceptZero' }).format(a.amount) : '';
+      return `<span class="opt-chip" title="Ajuste del precio ${which}">${escHtml(a.code || 'ajuste')} ${escHtml(amount)}</span>`;
+    }));
+
+  const roles = (price.roles || []).filter(Boolean);
+  const hidden = price.roles && !roles.includes('visible');
+
+  return `
+    <div class="price-main"><span class="price-final">${escHtml(main)}</span>${strike}</div>
+    ${adjustments.length ? `<div class="price-line"><span class="gen-label">Ajustes</span><div class="opt-chips">${adjustments.join('')}</div></div>` : ''}
+    ${roles.length ? `<div class="price-line"><span class="gen-label">Roles</span><div class="opt-chips">${roles.map((r) => `<span class="attrs-role">${escHtml(r)}</span>`).join(' ')}</div></div>` : ''}
+    ${hidden ? '<div class="price-line"><span class="stock-out">El precio no tiene el rol "visible" (oculto en tienda)</span></div>' : ''}
+  `;
+}
+
+function buildTiersHtml(price) {
+  const tiers = ((price && price.tiers) || []).map((t) => t && t.tier).filter(Boolean);
+  const final = price && price.final && price.final.amount;
+  const rows = tiers.map((t) => {
+    const main = formatMoney(t.amount);
+    if (!main) return '';
+    const pct = discountPercent(final, t.amount);
+    const adj = (t.adjustments || []).filter(Boolean)
+      .map((a) => `<span class="opt-chip">${escHtml(a.code || 'ajuste')} ${a.amount != null ? escHtml(String(a.amount)) : ''}</span>`).join('');
+    return `<tr>
+      <td class="pmd-attr-value">${escHtml(main)}</td>
+      <td class="pmd-attr-value col-narrow">${pct != null ? `<span class="price-badge">-${pct}%</span>` : '—'}</td>
+      <td class="pmd-attr-value"><div class="opt-chips">${adj}</div></td>
+    </tr>`;
+  }).join('');
+  if (!rows) return '';
+  return `
+    <div class="gen-text-label" style="margin-top:12px">Precios por cantidad</div>
+    <div class="pmd-table-wrap">
+      <table class="pmd-attrs-table">
+        <thead><tr><th>Precio</th><th class="col-narrow">Dto. vs final</th><th>Ajustes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function buildPriceSectionHtml(product) {
+  if (product.priceRange) {
+    const { minimum, maximum } = product.priceRange;
+    const min = buildPriceBlock(minimum);
+    const max = buildPriceBlock(maximum);
+    if (!min && !max) return '';
+    const same = JSON.stringify([minimum && minimum.final, minimum && minimum.regular]) === JSON.stringify([maximum && maximum.final, maximum && maximum.regular]);
+    if (same || !max || !min) {
+      return `<div class="price-card">${min || max}</div>${same ? '<p class="pmd-empty" style="text-align:left;padding:6px 0 0">Mismo precio en todas las variantes.</p>' : ''}`;
+    }
+    return `<div class="price-cards">
+      <div class="price-card"><div class="gen-text-label">Desde (mínimo)</div>${min}</div>
+      <div class="price-card"><div class="gen-text-label">Hasta (máximo)</div>${max}</div>
+    </div>`;
+  }
+  const block = buildPriceBlock(product.price);
+  if (!block) return '';
+  return `<div class="price-card">${block}</div>${buildTiersHtml(product.price)}`;
+}
+
+async function loadPriceInfo(pv) {
+  const section = $('pmd-price-section');
+  const body = $('pmd-price-body');
+  const variables = { skus: [pv.sku] };
+  const stale = () => currentModalPv !== pv;
+
+  let data;
+  try {
+    data = await graphqlFetch(PRODUCT_PRICE_QUERY, variables);
+  } catch (err) {
+    if (stale()) return;
+    body.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>`;
+    modalQueries.push({ title: 'Precios', text: formatSentQuery(PRODUCT_PRICE_QUERY, variables) });
+    renderModalQueries();
+    return;
+  }
+  if (stale()) return;
+
+  modalQueries.push({ title: 'Precios', text: formatSentQuery(PRODUCT_PRICE_QUERY, variables, data) });
+  renderModalQueries();
+
+  const product = (data?.data?.products || []).filter(Boolean)[0];
+  if (data.errors && data.errors.length > 0 && !product) {
+    body.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>`;
+    return;
+  }
+
+  const html = product ? buildPriceSectionHtml(product) : '';
+  if (!html) {
+    section.style.display = 'none';
+    return;
+  }
+  body.innerHTML = html;
+}
+
 const VARIANTS_PAGE_SIZE = 100; // maximum allowed by the variants query
 
 // SKU of the complex product whose options/variants the modal is showing (ignores stale responses)
@@ -3761,10 +4102,10 @@ function stockHtml(inStock) {
 }
 
 // Sent requests of the modal (options + each variants page), each with its real headers
-function renderModalQueries(blocks) {
+function renderModalQueries() {
   const el = $('pmd-query-body');
   if (!el) return;
-  el.innerHTML = blocks.map((b) => `
+  el.innerHTML = modalQueries.map((b) => `
     <details class="raw-json" style="margin-top:10px">
       <summary>Ver consulta GraphQL enviada · ${escHtml(b.title)}</summary>
       <pre class="raw-json-pre">${escHtml(b.text)}</pre>
@@ -3868,7 +4209,7 @@ async function loadVariants(state) {
 
   const variables = { sku: state.sku, pageSize: VARIANTS_PAGE_SIZE };
   if (state.cursor) variables.cursor = state.cursor;
-  const page = state.queries.length;
+  const page = state.pages++;
 
   let data;
   try {
@@ -3877,15 +4218,15 @@ async function loadVariants(state) {
     if (variantsState !== state) return;
     state.loading = false;
     state.error = `Error de red o del servidor: ${err.message}`;
-    state.queries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables) });
+    modalQueries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables) });
     renderVariants(state);
-    renderModalQueries(state.queries);
+    renderModalQueries();
     return;
   }
   if (variantsState !== state) return;
 
   state.loading = false;
-  state.queries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables, data) });
+  modalQueries.push({ title: `Variantes (página ${page + 1})`, text: formatSentQuery(PRODUCT_VARIANTS_QUERY, variables, data) });
 
   const result = data?.data?.variants;
   if (data.errors && data.errors.length > 0 && !result) {
@@ -3895,12 +4236,12 @@ async function loadVariants(state) {
     state.cursor = result.cursor || null;
   }
   renderVariants(state);
-  renderModalQueries(state.queries);
+  renderModalQueries();
 }
 
 async function loadAssociatedProducts(sku) {
   variantsRequestSku = sku;
-  const state = { sku, labels: new Map(), rows: [], cursor: null, loading: false, error: null, queries: [] };
+  const state = { sku, labels: new Map(), rows: [], cursor: null, loading: false, error: null, pages: 0 };
   variantsState = state;
 
   const box = $('pmd-options-body');
@@ -3913,13 +4254,14 @@ async function loadAssociatedProducts(sku) {
   } catch (err) {
     if (variantsState !== state) return;
     box.innerHTML = `<p class="pmd-empty">Error de red o del servidor: ${escHtml(err.message)}</p>`;
-    renderModalQueries([{ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables) }]);
+    modalQueries.push({ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables) });
+    renderModalQueries();
     return;
   }
   if (variantsState !== state) return;
 
-  state.queries.push({ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables, data) });
-  renderModalQueries(state.queries);
+  modalQueries.push({ title, text: formatSentQuery(PRODUCT_OPTIONS_QUERY, variables, data) });
+  renderModalQueries();
 
   if (data.errors && data.errors.length > 0) {
     box.innerHTML = `<p class="pmd-empty">Error GraphQL: ${escHtml(data.errors.map((e) => e.message).join('\n'))}</p>`;
@@ -3961,10 +4303,15 @@ function initProductModal() {
 
 function openProductModal(pv) {
   currentModalPv = pv;
+  modalQueries = [];
   $('product-modal-title').textContent = pv.name || pv.sku || 'Detalle del producto';
   $('product-modal-content').innerHTML = buildProductModalContent(pv);
   $('product-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
+  if (pv.sku) {
+    loadPriceInfo(pv);
+    loadGeneralInfo(pv);
+  }
   if (pv.__typename === 'ComplexProductView' && pv.sku) {
     loadAssociatedProducts(pv.sku);
   } else {
@@ -4028,7 +4375,6 @@ function buildProductModalContent(pv) {
         <div class="pmd-section-title">Variantes <span id="pmd-variants-count" class="tab-pill"></span></div>
         <div id="pmd-variants-body"></div>
       </div>
-      <div id="pmd-query-body"></div>
     `
     : '';
 
@@ -4043,8 +4389,17 @@ function buildProductModalContent(pv) {
         </div>
       </div>
     </div>
+    <div class="pmd-section" id="pmd-price-section">
+      <div class="pmd-section-title">Precio</div>
+      <div id="pmd-price-body"><p class="pmd-empty">Cargando…</p></div>
+    </div>
+    <div class="pmd-section" id="pmd-general-section">
+      <div class="pmd-section-title">Información general</div>
+      <div id="pmd-general-body"><p class="pmd-empty">Cargando…</p></div>
+    </div>
     ${variantsSection}
     ${attrsSection}
+    <div id="pmd-query-body"></div>
   `;
 }
 
