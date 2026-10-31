@@ -2425,3 +2425,252 @@ details.raw-json[open] .summary-chevron {
   margin-top: 4px;
   font-size: 12px;
 }
+
+/* ===== PRODUCT MODAL: CUSTOMIZABLE VIEW ===== */
+.pmd-sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.pmd-sections .pmd-section {
+  padding: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pmd-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+
+.pmd-sec-head:hover,
+.pmd-sec-head:focus-visible {
+  color: var(--color-text);
+}
+
+.pmd-sec-head .summary-chevron {
+  transition: transform var(--transition);
+  transform: rotate(90deg);
+}
+
+.pmd-section.pmd-collapsed .pmd-sec-head .summary-chevron {
+  transform: none;
+}
+
+.pmd-sec-body {
+  padding: 0 24px 20px;
+}
+
+.tab-pill:empty {
+  display: none;
+}
+
+.pmd-off {
+  display: none !important;
+}
+
+.pmd-sections:not(.pmd-tabs-mode) .pmd-collapsed > .pmd-sec-body {
+  display: none;
+}
+
+.pmd-tabs-mode .pmd-sec-head {
+  display: none;
+}
+
+.pmd-tabs-mode .pmd-sec-body {
+  padding-top: 18px;
+}
+
+.pmd-tabs-mode .pmd-section {
+  border-bottom: none;
+}
+
+.pmd-tab-hide {
+  display: none !important;
+}
+
+.pmd-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 24px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pmd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pmd-tab:hover {
+  color: var(--color-text);
+}
+
+.pmd-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+#pmd-none {
+  padding: 24px;
+}
+
+/* Customize panel */
+.pmd-customize-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pmd-customize-btn:hover,
+.pmd-customize-btn.active {
+  color: var(--color-text);
+  background: var(--color-surface2);
+  border-color: var(--color-border);
+}
+
+.pmd-customize {
+  flex-shrink: 0;
+  padding: 12px 24px;
+  background: var(--color-surface2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pmd-cz-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pmd-cz-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+}
+
+.pmd-seg {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.pmd-seg button {
+  padding: 4px 12px;
+  background: var(--color-bg);
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pmd-seg button.active {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.pmd-cz-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.pmd-cz-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.pmd-cz-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pmd-cz-move {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: var(--color-surface2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.pmd-cz-move:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pmd-cz-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pmd-cz-check.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pmd-cz-check input {
+  width: auto;
+}
+
+/* Attribute search */
+.pmd-attr-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pmd-attr-searchbar input {
+  max-width: 380px;
+}

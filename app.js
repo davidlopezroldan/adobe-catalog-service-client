@@ -16,10 +16,26 @@ const LS_SETTINGS_KEY = 'catalogService.settings';
 const LS_LAST_USED_KEY = 'catalogService.lastUsed';
 const LS_FAV_ATTRS_KEY = 'catalogService.favoriteAttributes';
 const LS_SORT_KEY = 'catalogService.productSort';
+const LS_MODAL_VIEW_KEY = 'catalogService.modalView';
 
 // Default application settings
 const DEFAULT_SETTINGS = {
   resultLimit: 500, // productSearch page_size
+};
+
+// Sections of the product detail modal that the user can show, hide and reorder
+const MODAL_SECTIONS = [
+  { id: 'price', title: 'Precio' },
+  { id: 'general', title: 'Información general' },
+  { id: 'options', title: 'Opciones' },
+  { id: 'variants', title: 'Variantes' },
+  { id: 'attributes', title: 'Atributos' },
+  { id: 'queries', title: 'Consulta enviada' },
+];
+
+const DEFAULT_MODAL_VIEW = {
+  layout: 'stack', // 'stack' (collapsible sections) | 'tabs'
+  sections: MODAL_SECTIONS.map((sec) => ({ id: sec.id, visible: true, open: true })),
 };
 
 // Last used selections/values, persisted so the panel restores them on reload
@@ -127,6 +143,7 @@ function refreshAttributeViews() {
   const modalAttrs = $('pmd-attrs-section');
   if (modalAttrs && currentModalPv) {
     modalAttrs.innerHTML = buildModalAttrsInner(currentModalPv.attributes || []);
+    filterModalAttributes();
   }
 }
 
@@ -282,6 +299,7 @@ function exportConfig() {
       lastUsed: safeParse(localStorage.getItem(LS_LAST_USED_KEY), DEFAULT_LAST_USED),
       favoriteAttributes: safeParse(localStorage.getItem(LS_FAV_ATTRS_KEY), []),
       productSort: safeParse(localStorage.getItem(LS_SORT_KEY), {}),
+      modalView: normalizeModalView(safeParse(localStorage.getItem(LS_MODAL_VIEW_KEY), null)),
     },
   };
 
@@ -318,7 +336,7 @@ function applyImportedConfig(parsed) {
     return;
   }
 
-  const hasAny = ['projects', 'environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes', 'productSort'].some((k) => k in data);
+  const hasAny = ['projects', 'environments', 'websites', 'settings', 'lastUsed', 'favoriteAttributes', 'productSort', 'modalView'].some((k) => k in data);
   if (!hasAny) {
     showConfigIoMessage('error', 'El archivo no contiene datos de configuración reconocibles.');
     return;
@@ -351,6 +369,9 @@ function applyImportedConfig(parsed) {
   if ('productSort' in data && data.productSort && typeof data.productSort === 'object' && !Array.isArray(data.productSort)) {
     localStorage.setItem(LS_SORT_KEY, JSON.stringify(data.productSort));
   }
+  if ('modalView' in data && data.modalView && typeof data.modalView === 'object' && !Array.isArray(data.modalView)) {
+    localStorage.setItem(LS_MODAL_VIEW_KEY, JSON.stringify(normalizeModalView(data.modalView)));
+  }
 
   // Reload in-memory state from storage
   loadSettings();
@@ -361,6 +382,7 @@ function applyImportedConfig(parsed) {
   }
   loadFavoriteAttributes();
   loadProductSort();
+  loadModalView();
   refreshAttributeViews();
   loadProjects();
 
@@ -4105,6 +4127,8 @@ function stockHtml(inStock) {
 function renderModalQueries() {
   const el = $('pmd-query-body');
   if (!el) return;
+  const queriesCount = $('pmd-queries-count');
+  if (queriesCount) queriesCount.textContent = modalQueries.length || '';
   el.innerHTML = modalQueries.map((b) => `
     <details class="raw-json" style="margin-top:10px">
       <summary>Ver consulta GraphQL enviada · ${escHtml(b.title)}</summary>
@@ -4275,6 +4299,8 @@ async function loadAssociatedProducts(sku) {
   }
 
   box.innerHTML = buildOptionsHtml(options);
+  const optionsCount = $('pmd-options-count');
+  if (optionsCount) optionsCount.textContent = options.filter(Boolean).length;
 
   if (isConfigurableOptions(options)) {
     options.filter(Boolean).forEach((opt) => {
@@ -4289,6 +4315,160 @@ async function loadAssociatedProducts(sku) {
 
 // ===== PRODUCT DETAIL MODAL =====
 
+// ----- Modal view preferences (sections: visibility, order, layout) -----
+
+let modalView = normalizeModalView(null);
+
+function normalizeModalView(raw) {
+  const known = new Set(MODAL_SECTIONS.map((sec) => sec.id));
+  const view = raw && typeof raw === 'object' ? raw : {};
+  const seen = new Set();
+  const sections = [];
+
+  (Array.isArray(view.sections) ? view.sections : []).forEach((cfg) => {
+    if (!cfg || typeof cfg !== 'object' || !known.has(cfg.id) || seen.has(cfg.id)) return;
+    seen.add(cfg.id);
+    sections.push({ id: cfg.id, visible: cfg.visible !== false, open: cfg.open !== false });
+  });
+  // Sections missing from the saved view keep their default place at the end
+  MODAL_SECTIONS.forEach((sec) => {
+    if (!seen.has(sec.id)) sections.push({ id: sec.id, visible: true, open: true });
+  });
+
+  return { layout: view.layout === 'tabs' ? 'tabs' : 'stack', sections };
+}
+
+function loadModalView() {
+  modalView = normalizeModalView(safeParse(localStorage.getItem(LS_MODAL_VIEW_KEY), null));
+}
+
+function saveModalView() {
+  localStorage.setItem(LS_MODAL_VIEW_KEY, JSON.stringify(modalView));
+}
+
+let modalActiveTab = null;
+let modalObserver = null;
+let modalAttrFilter = '';
+
+const modalSectionTitle = (id) => (MODAL_SECTIONS.find((sec) => sec.id === id) || {}).title || id;
+
+// Applies order, visibility and layout to the sections already in the DOM (no data is reloaded)
+function applyModalView(resetOpen = false) {
+  const root = $('pmd-sections');
+  if (!root) return;
+
+  const tabs = modalView.layout === 'tabs';
+  root.classList.toggle('pmd-tabs-mode', tabs);
+
+  const available = [];
+  modalView.sections.forEach((cfg, index) => {
+    const el = root.querySelector(`:scope > [data-section="${cfg.id}"]`);
+    if (!el) return;
+    if (el.style.order !== String(index)) el.style.order = String(index);
+    el.classList.toggle('pmd-off', !cfg.visible);
+    if (resetOpen) {
+      el.classList.toggle('pmd-collapsed', !cfg.open);
+      const head = el.querySelector('.pmd-sec-head');
+      if (head) head.setAttribute('aria-expanded', String(cfg.open));
+    }
+    // Sections without data hide themselves with an inline display: none
+    if (cfg.visible && el.style.display !== 'none') available.push({ cfg, el });
+  });
+
+  if (!available.some((a) => a.cfg.id === modalActiveTab)) {
+    modalActiveTab = available.length ? available[0].cfg.id : null;
+  }
+  modalView.sections.forEach((cfg) => {
+    const el = root.querySelector(`:scope > [data-section="${cfg.id}"]`);
+    if (el) el.classList.toggle('pmd-tab-hide', tabs && cfg.id !== modalActiveTab);
+  });
+
+  const bar = $('pmd-tabbar');
+  bar.style.display = tabs && available.length ? '' : 'none';
+  if (tabs) {
+    bar.innerHTML = available.map(({ cfg, el }) => {
+      const pill = el.querySelector('[data-count]');
+      const count = pill && pill.textContent.trim() ? ` <span class="tab-pill">${escHtml(pill.textContent.trim())}</span>` : '';
+      return `<button type="button" class="pmd-tab${cfg.id === modalActiveTab ? ' active' : ''}" data-tab="${cfg.id}">${escHtml(modalSectionTitle(cfg.id))}${count}</button>`;
+    }).join('');
+  }
+
+  $('pmd-none').style.display = available.length === 0 ? '' : 'none';
+}
+
+// ----- Customize panel -----
+
+function renderCustomizePanel() {
+  const tabs = modalView.layout === 'tabs';
+  const rows = modalView.sections.map((cfg, index) => `
+    <div class="pmd-cz-item">
+      <button type="button" class="pmd-cz-move" data-act="up" data-id="${cfg.id}" title="Subir" ${index === 0 ? 'disabled' : ''}>&#x2191;</button>
+      <button type="button" class="pmd-cz-move" data-act="down" data-id="${cfg.id}" title="Bajar" ${index === modalView.sections.length - 1 ? 'disabled' : ''}>&#x2193;</button>
+      <span class="pmd-cz-name">${escHtml(modalSectionTitle(cfg.id))}</span>
+      <label class="pmd-cz-check"><input type="checkbox" data-act="visible" data-id="${cfg.id}" ${cfg.visible ? 'checked' : ''}> Visible</label>
+      <label class="pmd-cz-check${tabs ? ' disabled' : ''}" title="${tabs ? 'Solo en presentación apilada' : 'Abierta al abrir el producto'}"><input type="checkbox" data-act="open" data-id="${cfg.id}" ${cfg.open ? 'checked' : ''} ${tabs ? 'disabled' : ''}> Abierta</label>
+    </div>`).join('');
+
+  $('pmd-customize').innerHTML = `
+    <div class="pmd-cz-row">
+      <span class="pmd-cz-label">Presentación</span>
+      <div class="pmd-seg">
+        <button type="button" data-layout="stack" class="${tabs ? '' : 'active'}">Apilado</button>
+        <button type="button" data-layout="tabs" class="${tabs ? 'active' : ''}">Pestañas</button>
+      </div>
+      <button type="button" id="pmd-cz-reset" class="btn btn-secondary btn-sm" style="margin-left:auto">Restaurar por defecto</button>
+    </div>
+    <div class="pmd-cz-list">${rows}</div>
+  `;
+}
+
+function isCustomizePanelOpen() {
+  return $('pmd-customize').style.display !== 'none';
+}
+
+function toggleCustomizePanel(open = !isCustomizePanelOpen()) {
+  if (open) renderCustomizePanel();
+  $('pmd-customize').style.display = open ? '' : 'none';
+  $('btn-pmd-customize').classList.toggle('active', open);
+}
+
+function handleCustomizeClick(e) {
+  const layoutBtn = e.target.closest('[data-layout]');
+  const actEl = e.target.closest('[data-act]');
+  let resetOpen = false;
+
+  if (layoutBtn) {
+    modalView.layout = layoutBtn.dataset.layout === 'tabs' ? 'tabs' : 'stack';
+    resetOpen = true;
+  } else if (e.target.closest('#pmd-cz-reset')) {
+    modalView = normalizeModalView(null);
+    resetOpen = true;
+  } else if (actEl && actEl.tagName === 'BUTTON') {
+    const i = modalView.sections.findIndex((cfg) => cfg.id === actEl.dataset.id);
+    const j = actEl.dataset.act === 'up' ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= modalView.sections.length) return;
+    [modalView.sections[i], modalView.sections[j]] = [modalView.sections[j], modalView.sections[i]];
+  } else {
+    return;
+  }
+
+  saveModalView();
+  renderCustomizePanel();
+  applyModalView(resetOpen);
+}
+
+function handleCustomizeChange(e) {
+  const input = e.target.closest('input[data-act]');
+  if (!input) return;
+  const cfg = modalView.sections.find((c) => c.id === input.dataset.id);
+  if (!cfg) return;
+  cfg[input.dataset.act === 'open' ? 'open' : 'visible'] = input.checked;
+  saveModalView();
+  applyModalView(input.dataset.act === 'open');
+}
+
+// ----- Modal -----
+
 function initProductModal() {
   $('btn-close-product-modal').addEventListener('click', closeProductModal);
   $('product-modal-overlay').addEventListener('click', (e) => {
@@ -4296,16 +4476,61 @@ function initProductModal() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && $('product-modal-overlay').style.display !== 'none') {
-      closeProductModal();
+      if (isCustomizePanelOpen()) toggleCustomizePanel(false);
+      else closeProductModal();
     }
   });
+
+  $('btn-pmd-customize').addEventListener('click', () => toggleCustomizePanel());
+  $('pmd-customize').addEventListener('click', handleCustomizeClick);
+  $('pmd-customize').addEventListener('change', handleCustomizeChange);
+
+  // Section headers (collapse), tabs and attribute search live inside re-rendered content: delegate
+  const content = $('product-modal-content');
+  content.addEventListener('click', (e) => {
+    const tab = e.target.closest('.pmd-tab');
+    if (tab) {
+      modalActiveTab = tab.dataset.tab;
+      applyModalView();
+      return;
+    }
+    const head = e.target.closest('.pmd-sec-head');
+    if (head && modalView.layout === 'stack') toggleSectionCollapsed(head);
+  });
+  content.addEventListener('keydown', (e) => {
+    const head = e.target.closest('.pmd-sec-head');
+    if (head && (e.key === 'Enter' || e.key === ' ') && modalView.layout === 'stack') {
+      e.preventDefault();
+      toggleSectionCollapsed(head);
+    }
+  });
+  content.addEventListener('input', (e) => {
+    if (e.target.id !== 'pmd-attr-search') return;
+    modalAttrFilter = e.target.value;
+    filterModalAttributes();
+  });
+}
+
+function toggleSectionCollapsed(head) {
+  const section = head.closest('.pmd-section');
+  const collapsed = section.classList.toggle('pmd-collapsed');
+  head.setAttribute('aria-expanded', String(!collapsed));
 }
 
 function openProductModal(pv) {
   currentModalPv = pv;
   modalQueries = [];
+  modalActiveTab = null;
+  modalAttrFilter = '';
   $('product-modal-title').textContent = pv.name || pv.sku || 'Detalle del producto';
   $('product-modal-content').innerHTML = buildProductModalContent(pv);
+  toggleCustomizePanel(false);
+  applyModalView(true);
+
+  if (modalObserver) modalObserver.disconnect();
+  modalObserver = new MutationObserver(() => applyModalView());
+  modalObserver.observe($('pmd-sections'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
+
   $('product-modal-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
   if (pv.sku) {
@@ -4324,8 +4549,27 @@ function closeProductModal() {
   currentModalPv = null;
   variantsRequestSku = null;
   variantsState = null;
+  if (modalObserver) {
+    modalObserver.disconnect();
+    modalObserver = null;
+  }
   $('product-modal-overlay').style.display = 'none';
   document.body.style.overflow = '';
+}
+
+const attrSearchText = (attr) => {
+  const v = attr.value;
+  const value = v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+  return `${attr.label || ''} ${attr.name || ''} ${value}`.toLowerCase();
+};
+
+function filterModalAttributes() {
+  const q = modalAttrFilter.trim().toLowerCase();
+  const rows = [...document.querySelectorAll('#pmd-attrs-section tr[data-search]')];
+  rows.forEach((tr) => { tr.hidden = q !== '' && !tr.dataset.search.includes(q); });
+  const shown = rows.filter((tr) => !tr.hidden).length;
+  const info = $('pmd-attr-match');
+  if (info) info.textContent = q ? `${shown} de ${rows.length}` : '';
 }
 
 function buildModalAttrsInner(attrs) {
@@ -4336,7 +4580,7 @@ function buildModalAttrsInner(attrs) {
       ? attr.roles.map((r) => `<span class="attrs-role">${escHtml(r)}</span>`).join(' ')
       : (attr.roles ? `<span class="attrs-role">${escHtml(attr.roles)}</span>` : '');
     return `
-      <tr>
+      <tr data-search="${escHtml(attrSearchText(attr))}">
         <td class="pmd-attr-name" title="${escHtml(attr.name || '')}">${buildFavButton(attr)}${escHtml(attr.label || attr.name || '—')}</td>
         <td class="pmd-attr-value">${renderAttrValue(attr.value)}</td>
         <td class="pmd-attr-roles">${roles}</td>
@@ -4345,7 +4589,10 @@ function buildModalAttrsInner(attrs) {
   }).join('');
 
   return `
-    <div class="pmd-section-title">Atributos <span class="tab-pill">${attrs.length}</span></div>
+    <div class="pmd-attr-searchbar">
+      <input id="pmd-attr-search" type="text" placeholder="Buscar atributo por nombre, label o valor" value="${escHtml(modalAttrFilter)}" autocomplete="off" spellcheck="false" />
+      <span id="pmd-attr-match" class="results-count"></span>
+    </div>
     <div class="pmd-table-wrap">
       <table class="pmd-attrs-table">
         <thead>
@@ -4361,22 +4608,32 @@ function buildModalAttrsInner(attrs) {
   `;
 }
 
+// A modal section: a header (collapse / count) and a body filled by its loader
+function buildModalSection(id, bodyHtml, { sectionId = '', countId = '', count = '', hidden = false } = {}) {
+  return `
+    <div class="pmd-section" data-section="${id}"${sectionId ? ` id="${sectionId}"` : ''}${hidden ? ' style="display:none"' : ''}>
+      <div class="pmd-sec-head" role="button" tabindex="0" aria-expanded="true">
+        <svg class="summary-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        <span class="pmd-sec-name">${escHtml(modalSectionTitle(id))}</span>
+        <span class="tab-pill" data-count${countId ? ` id="${countId}"` : ''}>${count}</span>
+      </div>
+      <div class="pmd-sec-body">${bodyHtml}</div>
+    </div>`;
+}
+
 function buildProductModalContent(pv) {
   const attrs = pv.attributes || [];
-  const attrsSection = `<div class="pmd-section" id="pmd-attrs-section">${buildModalAttrsInner(attrs)}</div>`;
+  const isComplex = pv.__typename === 'ComplexProductView';
+  const loading = '<p class="pmd-empty">Cargando…</p>';
 
-  const variantsSection = pv.__typename === 'ComplexProductView'
-    ? `
-      <div class="pmd-section">
-        <div class="pmd-section-title">Opciones</div>
-        <div id="pmd-options-body"><p class="pmd-empty">Cargando…</p></div>
-      </div>
-      <div class="pmd-section" id="pmd-variants-section" style="display:none">
-        <div class="pmd-section-title">Variantes <span id="pmd-variants-count" class="tab-pill"></span></div>
-        <div id="pmd-variants-body"></div>
-      </div>
-    `
-    : '';
+  const sections = [
+    buildModalSection('price', `<div id="pmd-price-body">${loading}</div>`, { sectionId: 'pmd-price-section' }),
+    buildModalSection('general', `<div id="pmd-general-body">${loading}</div>`, { sectionId: 'pmd-general-section' }),
+    isComplex ? buildModalSection('options', `<div id="pmd-options-body">${loading}</div>`, { sectionId: 'pmd-options-section', countId: 'pmd-options-count' }) : '',
+    isComplex ? buildModalSection('variants', '<div id="pmd-variants-body"></div>', { sectionId: 'pmd-variants-section', countId: 'pmd-variants-count', hidden: true }) : '',
+    buildModalSection('attributes', `<div id="pmd-attrs-section">${buildModalAttrsInner(attrs)}</div>`, { sectionId: 'pmd-attributes-section', count: String(attrs.length) }),
+    buildModalSection('queries', '<div id="pmd-query-body"></div>', { sectionId: 'pmd-queries-section', countId: 'pmd-queries-count' }),
+  ].join('');
 
   return `
     <div class="pmd-hero">
@@ -4389,17 +4646,9 @@ function buildProductModalContent(pv) {
         </div>
       </div>
     </div>
-    <div class="pmd-section" id="pmd-price-section">
-      <div class="pmd-section-title">Precio</div>
-      <div id="pmd-price-body"><p class="pmd-empty">Cargando…</p></div>
-    </div>
-    <div class="pmd-section" id="pmd-general-section">
-      <div class="pmd-section-title">Información general</div>
-      <div id="pmd-general-body"><p class="pmd-empty">Cargando…</p></div>
-    </div>
-    ${variantsSection}
-    ${attrsSection}
-    <div id="pmd-query-body"></div>
+    <div id="pmd-tabbar" class="pmd-tabbar" style="display:none"></div>
+    <div id="pmd-sections" class="pmd-sections">${sections}</div>
+    <p id="pmd-none" class="pmd-empty" style="display:none">No hay secciones visibles. Usa «Personalizar vista» para activarlas.</p>
   `;
 }
 
@@ -4409,6 +4658,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadLastUsed();
   initFavoriteAttributes();
   loadProjects();
+  loadModalView();
   initSettings();
   initProjectManager();
   initEnvironmentManager();
